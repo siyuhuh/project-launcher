@@ -647,6 +647,8 @@ kbd {
 
 .activity-label {
   display: flex;
+  min-width: 0;
+  flex: 1;
   align-items: center;
   margin-top: 4px;
   margin-left: 14px;
@@ -657,6 +659,61 @@ kbd {
 
 .activity-label[data-running="true"] {
   color: var(--green);
+}
+
+.project-meta-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.git-status {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 132px;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--quiet);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.git-status svg {
+  flex: 0 0 auto;
+}
+
+.git-status strong,
+.git-status > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-status strong {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.git-status[data-state="checking"] {
+  color: var(--quiet);
+}
+
+.git-status[data-state="clean"] {
+  color: #719179;
+}
+
+.git-status[data-state="dirty"] {
+  color: var(--amber);
+}
+
+.git-status[data-state="dirty"] strong {
+  color: #e2b766;
+}
+
+.summary-git {
+  color: var(--amber);
 }
 
 .card-icon-actions {

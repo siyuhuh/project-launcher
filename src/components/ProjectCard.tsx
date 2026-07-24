@@ -2,6 +2,7 @@ import type { DragEvent } from "react";
 import {
   FileText,
   Folder,
+  GitBranch,
   GripVertical,
   LoaderCircle,
   Pencil,
@@ -11,7 +12,7 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { projectActivity } from "../lib/projectMeta";
-import type { ProjectView } from "../types";
+import type { GitStatus, ProjectView } from "../types";
 
 interface Props {
   project: ProjectView;
@@ -85,9 +86,12 @@ export function ProjectCard({
               />
               <h2 title={project.name}>{project.name}</h2>
             </div>
-            <span className="activity-label" data-running={running} title={activityTitle(project)}>
-              {projectActivity(project)}
-            </span>
+            <div className="project-meta-row">
+              <span className="activity-label" data-running={running} title={activityTitle(project)}>
+                {projectActivity(project)}
+              </span>
+              <GitStatusBadge status={project.gitStatus} />
+            </div>
           </div>
         </div>
         <div className="card-icon-actions">
@@ -133,6 +137,41 @@ export function ProjectCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function GitStatusBadge({ status }: { status: GitStatus | null }) {
+  if (!status) {
+    return (
+      <span className="git-status" data-state="checking" title="Checking Git status">
+        <GitBranch size={11} /> git…
+      </span>
+    );
+  }
+  if (!status.isRepo) {
+    return (
+      <span className="git-status" data-state="none" title="This folder is not a Git repository">
+        <GitBranch size={11} /> no git
+      </span>
+    );
+  }
+
+  const sync = [
+    status.ahead > 0 ? `↑${status.ahead}` : "",
+    status.behind > 0 ? `↓${status.behind}` : "",
+  ].filter(Boolean).join(" ");
+  const detail = status.dirty ? `${status.changed} changed` : "clean";
+  const label = sync ? `${detail} ${sync}` : detail;
+  return (
+    <span
+      className="git-status"
+      data-state={status.dirty ? "dirty" : "clean"}
+      title={`${status.branch} · ${label}`}
+    >
+      <GitBranch size={11} />
+      <strong>{status.branch}</strong>
+      <span>{label}</span>
+    </span>
   );
 }
 

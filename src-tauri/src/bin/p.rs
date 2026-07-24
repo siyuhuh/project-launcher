@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
-use runbox_lib::core::{self, ProcessStatus, Project};
+use runbox_lib::core::{self, GitStatus, ProcessStatus, Project};
 use std::{thread, time::Duration};
 
 #[derive(Parser)]
@@ -91,10 +91,11 @@ fn list() -> Result<(), String> {
     }
 
     println!(
-        "{:<3}  {:<24}  {:<10}  {}",
+        "{:<3}  {:<24}  {:<10}  {:<22}  {}",
         "",
         "PROJECT".dimmed(),
         "STATUS".dimmed(),
+        "GIT".dimmed(),
         "COMMAND".dimmed()
     );
     for project in projects {
@@ -103,8 +104,12 @@ fn list() -> Result<(), String> {
         } else {
             ("○".dimmed().to_string(), "stopped".dimmed().to_string())
         };
+        let git_status = project
+            .git_status
+            .clone()
+            .or_else(|| core::read_git_status_sync(&project.project.path));
         println!(
-            "{:<3}  {:<24}  {:<10}  {}",
+            "{:<3}  {:<24}  {:<10}  {:<22}  {}",
             if project.project.favorite {
                 "★".yellow().to_string()
             } else {
@@ -112,10 +117,40 @@ fn list() -> Result<(), String> {
             },
             truncate(&project.project.name, 24),
             status,
+            git_summary(git_status.as_ref()),
             project.project.command.dimmed()
         );
     }
     Ok(())
+}
+
+fn git_summary(status: Option<&GitStatus>) -> String {
+    let Some(status) = status else {
+        return "—".dimmed().to_string();
+    };
+    if !status.is_repo {
+        return "—".dimmed().to_string();
+    }
+
+    let mut label = status.branch.clone();
+    if status.dirty {
+        label.push_str(&format!(" · {} changed", status.changed));
+    } else {
+        label.push_str(" · clean");
+    }
+    if status.ahead > 0 {
+        label.push_str(&format!(" ↑{}", status.ahead));
+    }
+    if status.behind > 0 {
+        label.push_str(&format!(" ↓{}", status.behind));
+    }
+
+    let label = truncate(&label, 22);
+    if status.dirty {
+        label.yellow().to_string()
+    } else {
+        label.green().to_string()
+    }
 }
 
 fn start(query: &str) -> Result<(), String> {

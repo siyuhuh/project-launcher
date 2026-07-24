@@ -9,6 +9,7 @@ Runbox remembers each project directory and start command, then gives you one sh
 - read recent output without finding the right terminal tab;
 - pin the few projects you use every day and sort by last opened, name, or manual order;
 - filter by status or project tool and see when each project was last opened;
+- inspect each project's Git branch, clean/changed state, and ahead/behind counts;
 - mirror Finder tag colors from the project folders on macOS;
 - use the same entries from Terminal with `p my-project`;
 - keep processes running when the desktop window is closed.
@@ -55,7 +56,8 @@ p add ~/Projects/my-web
 p remove my-web
 ```
 
-The desktop app and CLI read the same project list, runtime state, and logs.
+The desktop app and CLI read the same project list, runtime state, and logs. `p list` also shows
+the current Git branch and working-tree summary.
 
 ## Import many projects with an agent
 
@@ -122,6 +124,13 @@ When a folder is selected, Runbox inspects common project files:
 - `pyproject.toml`.
 
 The detected command is always editable before saving.
+
+## Git status
+
+For folders inside a Git worktree, Runbox reads `git status --porcelain=v2 --branch` in the
+background and shows the branch, clean/changed state, and ahead/behind counts. The **Git changes**
+sidebar filter narrows the workspace to projects with local changes. Runbox never fetches, pulls, or
+pushes; this is a local read-only status check.
 
 ### Finder tag colors on macOS
 

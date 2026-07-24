@@ -23,6 +23,16 @@ export interface ProjectView extends Project {
   startedAt: number | null;
   stoppedAt: number | null;
   finderTagColor: FinderTagColor | null;
+  gitStatus: GitStatus | null;
+}
+
+export interface GitStatus {
+  isRepo: boolean;
+  branch: string;
+  dirty: boolean;
+  changed: number;
+  ahead: number;
+  behind: number;
 }
 
 export type ProjectForm = Project;

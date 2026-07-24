@@ -17,10 +17,17 @@ use uuid::Uuid;
 const APP_DIRECTORY: &str = "Runbox";
 const LOG_READ_LIMIT: u64 = 256 * 1024;
 const FINDER_TAG_CACHE_TTL: Duration = Duration::from_secs(15);
+const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(3);
 
 #[derive(Default)]
 struct FinderTagCache {
     entries: HashMap<String, (Instant, Option<String>)>,
+    pending: HashSet<String>,
+}
+
+#[derive(Default)]
+struct GitStatusCache {
+    entries: HashMap<String, (Instant, Option<GitStatus>)>,
     pending: HashSet<String>,
 }
 
@@ -47,6 +54,18 @@ pub struct ProjectView {
     pub started_at: Option<u64>,
     pub stopped_at: Option<u64>,
     pub finder_tag_color: Option<String>,
+    pub git_status: Option<GitStatus>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStatus {
+    pub is_repo: bool,
+    pub branch: String,
+    pub dirty: bool,
+    pub changed: u32,
+    pub ahead: u32,
+    pub behind: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -148,6 +167,7 @@ pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
                 write_runtime(&project.id, &runtime)?;
             }
             let finder_tag_color = finder_tag_color(&project.path);
+            let git_status = git_status(&project.path);
 
             Ok(ProjectView {
                 project,
@@ -160,6 +180,7 @@ pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
                 started_at: runtime.started_at,
                 stopped_at: runtime.stopped_at,
                 finder_tag_color,
+                git_status,
             })
         })
         .collect()
@@ -392,6 +413,7 @@ pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
     })?;
     let started_at = now();
     let finder_tag_color = finder_tag_color(&project.path);
+    let git_status = git_status(&project.path);
     write_runtime(
         &project.id,
         &RuntimeInfo {
@@ -409,6 +431,7 @@ pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
         started_at: Some(started_at),
         stopped_at: None,
         finder_tag_color,
+        git_status,
     })
 }
 
@@ -426,6 +449,7 @@ pub fn stop_project(project_id: &str) -> Result<ProjectView, String> {
     runtime.stopped_at = Some(now());
     write_runtime(&project.id, &runtime)?;
     let finder_tag_color = finder_tag_color(&project.path);
+    let git_status = git_status(&project.path);
 
     Ok(ProjectView {
         project,
@@ -434,6 +458,7 @@ pub fn stop_project(project_id: &str) -> Result<ProjectView, String> {
         started_at: runtime.started_at,
         stopped_at: runtime.stopped_at,
         finder_tag_color,
+        git_status,
     })
 }
 
@@ -723,6 +748,120 @@ fn finder_tag_sender() -> &'static mpsc::Sender<String> {
         });
         sender
     })
+}
+
+fn git_status(path: &str) -> Option<GitStatus> {
+    let (cached_status, should_refresh) = {
+        let mut cache = git_status_cache().lock().ok()?;
+        if let Some((checked_at, status)) = cache.entries.get(path) {
+            if checked_at.elapsed() < GIT_STATUS_CACHE_TTL {
+                return status.clone();
+            }
+        }
+        let cached_status = cache
+            .entries
+            .get(path)
+            .and_then(|(_, status)| status.clone());
+        let should_refresh = cache.pending.insert(path.to_string());
+        (cached_status, should_refresh)
+    };
+
+    if should_refresh {
+        let _ = git_status_sender().send(path.to_string());
+    }
+    cached_status
+}
+
+fn git_status_cache() -> &'static Mutex<GitStatusCache> {
+    static CACHE: OnceLock<Mutex<GitStatusCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(GitStatusCache::default()))
+}
+
+fn git_status_sender() -> &'static mpsc::Sender<String> {
+    static SENDER: OnceLock<mpsc::Sender<String>> = OnceLock::new();
+    SENDER.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<String>();
+        thread::spawn(move || {
+            for path in receiver {
+                let status = read_git_status(&path);
+                if let Ok(mut cache) = git_status_cache().lock() {
+                    cache.entries.insert(path.clone(), (Instant::now(), status));
+                    cache.pending.remove(&path);
+                }
+            }
+        });
+        sender
+    })
+}
+
+fn read_git_status(path: &str) -> Option<GitStatus> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            path,
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "--branch",
+        ])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return Some(GitStatus {
+            is_repo: false,
+            branch: String::new(),
+            dirty: false,
+            changed: 0,
+            ahead: 0,
+            behind: 0,
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut branch = None;
+    let mut ahead = 0;
+    let mut behind = 0;
+    let mut changed = 0;
+
+    for line in stdout.lines() {
+        if let Some(value) = line.strip_prefix("# branch.head ") {
+            branch = Some(if value == "(detached)" {
+                "HEAD detached".to_string()
+            } else {
+                value.to_string()
+            });
+        } else if let Some(value) = line.strip_prefix("# branch.ab ") {
+            let mut values = value.split_whitespace();
+            ahead = values
+                .next()
+                .and_then(|value| value.strip_prefix('+'))
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0);
+            behind = values
+                .next()
+                .and_then(|value| value.strip_prefix('-'))
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0);
+        } else if matches!(line.as_bytes().first(), Some(b'1' | b'2' | b'u' | b'?')) {
+            changed += 1;
+        }
+    }
+
+    Some(GitStatus {
+        is_repo: true,
+        branch: branch.unwrap_or_else(|| "HEAD".to_string()),
+        dirty: changed > 0,
+        changed,
+        ahead,
+        behind,
+    })
+}
+
+pub fn read_git_status_sync(path: &str) -> Option<GitStatus> {
+    read_git_status(path)
 }
 
 #[cfg(target_os = "macos")]

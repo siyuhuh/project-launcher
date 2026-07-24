@@ -13,6 +13,7 @@ import {
   CircleStop,
   Command,
   FolderOpen,
+  GitBranch,
   LayoutGrid,
   Plus,
   Search,
@@ -42,7 +43,7 @@ import { commandTag, type CommandTag } from "./lib/projectMeta";
 import type { Project, ProjectForm, ProjectView } from "./types";
 import "./App.css";
 
-type Filter = "all" | "favorites" | "running" | "stopped";
+type Filter = "all" | "favorites" | "running" | "stopped" | "gitChanges";
 type SortMode = "manual" | "recent" | "name";
 type TagFilter = "all" | CommandTag;
 type Toast = { id: number; message: string; tone: "success" | "error" };
@@ -160,6 +161,10 @@ export default function App() {
   );
   const favoriteCount = useMemo(
     () => projects.reduce((count, project) => count + Number(project.favorite), 0),
+    [projects],
+  );
+  const gitChangesCount = useMemo(
+    () => projects.reduce((count, project) => count + Number(project.gitStatus?.dirty ?? false), 0),
     [projects],
   );
   const finderTagCount = useMemo(
@@ -364,6 +369,13 @@ export default function App() {
             accent
           />
           <FilterButton
+            active={filter === "gitChanges"}
+            icon={<GitBranch size={15} />}
+            label="Git changes"
+            count={gitChangesCount}
+            onClick={() => setFilter("gitChanges")}
+          />
+          <FilterButton
             active={filter === "stopped"}
             icon={<CircleStop size={15} />}
             label="Stopped"
@@ -414,6 +426,10 @@ export default function App() {
             <span className="summary-separator">/</span>
             <span className={runningCount > 0 ? "summary-running" : ""}>
               <i />{runningCount} running
+            </span>
+            <span className="summary-separator">/</span>
+            <span className={gitChangesCount > 0 ? "summary-git" : ""}>
+              <GitBranch size={10} />{gitChangesCount} changed
             </span>
             <span className="summary-separator">/</span>
             <span><Star size={10} />{favoriteCount} pinned</span>
@@ -546,6 +562,7 @@ function matchesFilter(project: ProjectView, filter: Filter): boolean {
   if (filter === "favorites") return project.favorite;
   if (filter === "running") return project.status === "running";
   if (filter === "stopped") return project.status === "stopped";
+  if (filter === "gitChanges") return project.gitStatus?.dirty ?? false;
   return true;
 }
 
@@ -566,6 +583,7 @@ function filterTitle(filter: Filter): string {
   if (filter === "favorites") return "Pinned";
   if (filter === "running") return "Running";
   if (filter === "stopped") return "Stopped";
+  if (filter === "gitChanges") return "Git changes";
   return "Projects";
 }
 
