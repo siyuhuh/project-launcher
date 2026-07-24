@@ -1,0 +1,37 @@
+[package]
+name = "runbox"
+version = "0.1.0"
+description = "A tiny desktop and terminal launcher for local development projects"
+authors = ["Siyu Hu"]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/siyuhuh/project-launcher"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "runbox_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "runbox"
+path = "src/main.rs"
+
+[[bin]]
+name = "p"
+path = "src/bin/p.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4.5", features = ["derive"] }
+dirs = "6"
+libc = "0.2"
+owo-colors = "4"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
