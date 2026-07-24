@@ -138,9 +138,6 @@ pub fn upsert_project(mut project: Project) -> Result<Project, String> {
     project.command = project.command.trim().to_string();
     project.path = normalize_path(&project.path)?;
 
-    if project.id.trim().is_empty() {
-        project.id = Uuid::new_v4().to_string();
-    }
     if project.name.is_empty() {
         return Err("Project name is required".to_string());
     }
@@ -155,6 +152,13 @@ pub fn upsert_project(mut project: Project) -> Result<Project, String> {
     }
 
     let mut projects = list_projects()?;
+    if project.id.trim().is_empty() {
+        project.id = projects
+            .iter()
+            .find(|item| item.path == project.path)
+            .map(|item| item.id.clone())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+    }
     if let Some(existing) = projects.iter_mut().find(|item| item.id == project.id) {
         *existing = project.clone();
     } else {

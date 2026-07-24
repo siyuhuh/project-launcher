@@ -54,6 +54,47 @@ p remove my-web
 
 The desktop app and CLI read the same project list, runtime state, and logs.
 
+## Import many projects with an agent
+
+Runbox deliberately does not crawl your disk by itself. Codex or another local coding agent can inspect a workspace, choose the real application roots, and add them safely.
+
+Copy this prompt into your agent:
+
+```text
+Scan my local workspace for project roots. Look for Git repositories and common
+launch manifests such as package.json, pnpm-lock.yaml, Cargo.toml, justfile, and
+Docker Compose files.
+
+For each project with a clear dev or start command:
+1. Use the folder name as the friendly project name.
+2. Skip node_modules, build output, research copies, archives, snapshots, and
+   repositories without a runnable development command.
+3. Run: p add "<absolute-project-path>" --name "<friendly-name>"
+4. If automatic detection is wrong, pass --command "<correct-command>".
+5. Do not start any project during import.
+6. Finish with p list and report what was added and what was skipped.
+```
+
+The workflow an agent should follow is:
+
+```bash
+# Inspect only — identify repositories and manifests
+find /path/to/workspace -type d -name .git
+
+# Add or update a detected project
+p add "/path/to/workspace/my-web" --name "my-web"
+
+# Override detection when needed
+p add "/path/to/workspace/desktop-app" \
+  --name "desktop-app" \
+  --command "pnpm app:dev"
+
+# Verify without starting anything
+p list
+```
+
+`p add` is idempotent by canonical project path. Re-running the scan updates an existing entry instead of creating a duplicate. Machine-specific project paths remain in the local Runbox data directory and are never committed to this repository.
+
 ## How commands run
 
 Every command runs:

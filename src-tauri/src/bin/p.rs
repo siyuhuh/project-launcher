@@ -162,6 +162,9 @@ fn logs(query: &str, follow: bool) -> Result<(), String> {
 
 fn add(path: &str, name: Option<String>, command: Option<String>) -> Result<(), String> {
     let draft = core::inspect_project(path)?;
+    let updating = core::list_projects()?
+        .iter()
+        .any(|project| project.path == draft.path);
     let project = core::upsert_project(Project {
         id: String::new(),
         name: name.unwrap_or(draft.name),
@@ -169,7 +172,8 @@ fn add(path: &str, name: Option<String>, command: Option<String>) -> Result<(), 
         command: command.unwrap_or(draft.command),
         favorite: false,
     })?;
-    println!("{} {} added", "+".green().bold(), project.name.bold());
+    let action = if updating { "updated" } else { "added" };
+    println!("{} {} {action}", "+".green().bold(), project.name.bold());
     println!("  {} {}", "$".green(), project.command);
     Ok(())
 }
