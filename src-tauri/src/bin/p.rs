@@ -105,7 +105,11 @@ fn list() -> Result<(), String> {
         };
         println!(
             "{:<3}  {:<24}  {:<10}  {}",
-            dot,
+            if project.project.favorite {
+                "★".yellow().to_string()
+            } else {
+                dot
+            },
             truncate(&project.project.name, 24),
             status,
             project.project.command.dimmed()
@@ -171,6 +175,7 @@ fn add(path: &str, name: Option<String>, command: Option<String>) -> Result<(), 
         path: draft.path,
         command: command.unwrap_or(draft.command),
         favorite: false,
+        sort_order: 0,
     })?;
     let action = if updating { "updated" } else { "added" };
     println!("{} {} {action}", "+".green().bold(), project.name.bold());

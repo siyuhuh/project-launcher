@@ -1,4 +1,12 @@
 export type ProcessStatus = "running" | "stopped";
+export type FinderTagColor =
+  | "gray"
+  | "green"
+  | "purple"
+  | "blue"
+  | "yellow"
+  | "red"
+  | "orange";
 
 export interface Project {
   id: string;
@@ -6,6 +14,7 @@ export interface Project {
   path: string;
   command: string;
   favorite: boolean;
+  sortOrder: number;
 }
 
 export interface ProjectView extends Project {
@@ -13,6 +22,7 @@ export interface ProjectView extends Project {
   pid: number | null;
   startedAt: number | null;
   stoppedAt: number | null;
+  finderTagColor: FinderTagColor | null;
 }
 
 export type ProjectForm = Project;

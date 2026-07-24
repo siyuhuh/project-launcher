@@ -1,17 +1,28 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{Mutex, OnceLock, mpsc},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+#[cfg(target_os = "macos")]
+use std::{ffi::CString, os::unix::ffi::OsStrExt, ptr};
 use uuid::Uuid;
 
 const APP_DIRECTORY: &str = "Runbox";
 const LOG_READ_LIMIT: u64 = 256 * 1024;
+const FINDER_TAG_CACHE_TTL: Duration = Duration::from_secs(15);
+
+#[derive(Default)]
+struct FinderTagCache {
+    entries: HashMap<String, (Instant, Option<String>)>,
+    pending: HashSet<String>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +33,8 @@ pub struct Project {
     pub command: String,
     #[serde(default)]
     pub favorite: bool,
+    #[serde(default)]
+    pub sort_order: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -33,6 +46,7 @@ pub struct ProjectView {
     pub pid: Option<u32>,
     pub started_at: Option<u64>,
     pub stopped_at: Option<u64>,
+    pub finder_tag_color: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -94,7 +108,22 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
         return Ok(Vec::new());
     }
 
-    serde_json::from_str(&raw).map_err(display_error)
+    let mut projects: Vec<Project> = serde_json::from_str(&raw).map_err(display_error)?;
+    let needs_order_migration =
+        projects.len() > 1 && projects.iter().all(|project| project.sort_order == 0);
+    let mut changed = false;
+
+    for (index, project) in projects.iter_mut().enumerate() {
+        if needs_order_migration {
+            project.sort_order = index as i64 * 100;
+            changed = true;
+        }
+    }
+
+    if changed {
+        write_projects(&projects)?;
+    }
+    Ok(projects)
 }
 
 pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
@@ -103,6 +132,7 @@ pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
         right
             .favorite
             .cmp(&left.favorite)
+            .then_with(|| left.sort_order.cmp(&right.sort_order))
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
     });
 
@@ -117,6 +147,7 @@ pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
                 runtime.stopped_at = Some(now());
                 write_runtime(&project.id, &runtime)?;
             }
+            let finder_tag_color = finder_tag_color(&project.path);
 
             Ok(ProjectView {
                 project,
@@ -128,6 +159,7 @@ pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
                 pid: runtime.pid,
                 started_at: runtime.started_at,
                 stopped_at: runtime.stopped_at,
+                finder_tag_color,
             })
         })
         .collect()
@@ -153,11 +185,19 @@ pub fn upsert_project(mut project: Project) -> Result<Project, String> {
 
     let mut projects = list_projects()?;
     if project.id.trim().is_empty() {
-        project.id = projects
-            .iter()
-            .find(|item| item.path == project.path)
-            .map(|item| item.id.clone())
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        if let Some(existing) = projects.iter().find(|item| item.path == project.path) {
+            project.id = existing.id.clone();
+            project.favorite = existing.favorite;
+            project.sort_order = existing.sort_order;
+        } else {
+            project.id = Uuid::new_v4().to_string();
+            project.sort_order = projects
+                .iter()
+                .map(|item| item.sort_order)
+                .max()
+                .unwrap_or(-100)
+                + 100;
+        }
     }
     if let Some(existing) = projects.iter_mut().find(|item| item.id == project.id) {
         *existing = project.clone();
@@ -166,6 +206,51 @@ pub fn upsert_project(mut project: Project) -> Result<Project, String> {
     }
     write_projects(&projects)?;
     Ok(project)
+}
+
+pub fn set_project_favorite(project_id: &str, favorite: bool) -> Result<Project, String> {
+    let mut projects = list_projects()?;
+    let project = projects
+        .iter_mut()
+        .find(|project| project.id == project_id)
+        .ok_or_else(|| "Project not found".to_string())?;
+    project.favorite = favorite;
+    let updated = project.clone();
+    write_projects(&projects)?;
+    Ok(updated)
+}
+
+pub fn reorder_projects(project_ids: &[String]) -> Result<(), String> {
+    let positions: HashMap<&str, i64> = project_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.as_str(), index as i64 * 100))
+        .collect();
+    let mut projects = list_projects()?;
+
+    for project in &mut projects {
+        if let Some(position) = positions.get(project.id.as_str()) {
+            project.sort_order = *position;
+        }
+    }
+    write_projects(&projects)
+}
+
+pub fn refresh_finder_tags() -> Result<(), String> {
+    let paths: Vec<String> = list_projects()?
+        .into_iter()
+        .map(|project| project.path)
+        .collect();
+    thread::spawn(move || {
+        for path in paths {
+            let color = read_finder_tag_color(&path);
+            if let Ok(mut cache) = finder_tag_cache().lock() {
+                cache.entries.insert(path.clone(), (Instant::now(), color));
+                cache.pending.remove(&path);
+            }
+        }
+    });
+    Ok(())
 }
 
 pub fn delete_project(project_id: &str) -> Result<(), String> {
@@ -306,6 +391,7 @@ pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
         )
     })?;
     let started_at = now();
+    let finder_tag_color = finder_tag_color(&project.path);
     write_runtime(
         &project.id,
         &RuntimeInfo {
@@ -322,6 +408,7 @@ pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
         pid: read_runtime(project_id)?.pid,
         started_at: Some(started_at),
         stopped_at: None,
+        finder_tag_color,
     })
 }
 
@@ -338,6 +425,7 @@ pub fn stop_project(project_id: &str) -> Result<ProjectView, String> {
     runtime.pid = None;
     runtime.stopped_at = Some(now());
     write_runtime(&project.id, &runtime)?;
+    let finder_tag_color = finder_tag_color(&project.path);
 
     Ok(ProjectView {
         project,
@@ -345,6 +433,7 @@ pub fn stop_project(project_id: &str) -> Result<ProjectView, String> {
         pid: None,
         started_at: runtime.started_at,
         stopped_at: runtime.stopped_at,
+        finder_tag_color,
     })
 }
 
@@ -593,6 +682,91 @@ fn now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+fn finder_tag_color(path: &str) -> Option<String> {
+    let (cached_color, should_refresh) = {
+        let mut cache = finder_tag_cache().lock().ok()?;
+        if let Some((checked_at, color)) = cache.entries.get(path) {
+            if checked_at.elapsed() < FINDER_TAG_CACHE_TTL {
+                return color.clone();
+            }
+        }
+        let cached_color = cache.entries.get(path).and_then(|(_, color)| color.clone());
+        let should_refresh = cache.pending.insert(path.to_string());
+        (cached_color, should_refresh)
+    };
+
+    if should_refresh {
+        let _ = finder_tag_sender().send(path.to_string());
+    }
+    cached_color
+}
+
+fn finder_tag_cache() -> &'static Mutex<FinderTagCache> {
+    static CACHE: OnceLock<Mutex<FinderTagCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(FinderTagCache::default()))
+}
+
+fn finder_tag_sender() -> &'static mpsc::Sender<String> {
+    static SENDER: OnceLock<mpsc::Sender<String>> = OnceLock::new();
+    SENDER.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<String>();
+        thread::spawn(move || {
+            for path in receiver {
+                let color = read_finder_tag_color(&path);
+                if let Ok(mut cache) = finder_tag_cache().lock() {
+                    cache.entries.insert(path.clone(), (Instant::now(), color));
+                    cache.pending.remove(&path);
+                }
+            }
+        });
+        sender
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn read_finder_tag_color(path: &str) -> Option<String> {
+    let path = CString::new(Path::new(path).as_os_str().as_bytes()).ok()?;
+    let attribute = c"com.apple.metadata:_kMDItemUserTags";
+    let size =
+        unsafe { libc::getxattr(path.as_ptr(), attribute.as_ptr(), ptr::null_mut(), 0, 0, 0) };
+    if size <= 0 {
+        return None;
+    }
+
+    let mut bytes = vec![0_u8; size as usize];
+    let bytes_read = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            attribute.as_ptr(),
+            bytes.as_mut_ptr().cast(),
+            bytes.len(),
+            0,
+            0,
+        )
+    };
+    if bytes_read <= 0 {
+        return None;
+    }
+    bytes.truncate(bytes_read as usize);
+
+    let color = bytes.windows(4).find_map(|window| match window {
+        [0, b'\n', 0, b'1'] => Some("gray"),
+        [0, b'\n', 0, b'2'] => Some("green"),
+        [0, b'\n', 0, b'3'] => Some("purple"),
+        [0, b'\n', 0, b'4'] => Some("blue"),
+        [0, b'\n', 0, b'5'] => Some("yellow"),
+        [0, b'\n', 0, b'6'] => Some("red"),
+        [0, b'\n', 0, b'7'] => Some("orange"),
+        _ => None,
+    })?;
+    Some(color.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_finder_tag_color(_path: &str) -> Option<String> {
+    None
 }
 
 fn display_error(error: impl std::fmt::Display) -> String {

@@ -13,6 +13,21 @@ fn save_project(project: Project) -> Result<Project, String> {
 }
 
 #[tauri::command]
+fn set_favorite(project_id: String, favorite: bool) -> Result<Project, String> {
+    core::set_project_favorite(&project_id, favorite)
+}
+
+#[tauri::command]
+fn reorder_project_list(project_ids: Vec<String>) -> Result<(), String> {
+    core::reorder_projects(&project_ids)
+}
+
+#[tauri::command]
+fn refresh_finder_colors() -> Result<(), String> {
+    core::refresh_finder_tags()
+}
+
+#[tauri::command]
 fn remove_project(project_id: String) -> Result<(), String> {
     core::delete_project(&project_id)
 }
@@ -59,6 +74,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_projects,
             save_project,
+            set_favorite,
+            reorder_project_list,
+            refresh_finder_colors,
             remove_project,
             detect_project,
             launch_project,

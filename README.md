@@ -7,10 +7,13 @@ Runbox remembers each project directory and start command, then gives you one sh
 - click **Run / Stop** in the desktop app;
 - see whether a project is actually running;
 - read recent output without finding the right terminal tab;
+- pin the few projects you use every day and sort by last opened, name, or manual order;
+- filter by status or project tool and see when each project was last opened;
+- mirror Finder tag colors from the project folders on macOS;
 - use the same entries from Terminal with `p my-project`;
 - keep processes running when the desktop window is closed.
 
-The interface is deliberately quiet: a compact, terminal-inspired dashboard without Docker or a heavyweight embedded browser.
+The interface is deliberately quiet: a compact Fira Code, terminal-inspired dashboard without Docker or a heavyweight embedded browser.
 
 ## Quick start
 
@@ -119,6 +122,12 @@ When a folder is selected, Runbox inspects common project files:
 - `pyproject.toml`.
 
 The detected command is always editable before saving.
+
+### Finder tag colors on macOS
+
+Projects imported from the CLI have not yet been selected by the desktop app. If Runbox shows
+**Finder colors**, click it once and choose the parent folder that contains your projects. macOS
+remembers that folder access, and Runbox then mirrors its Finder tag dots automatically.
 
 ## Local data
 

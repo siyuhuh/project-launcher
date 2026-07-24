@@ -110,8 +110,8 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
             </span>
           </label>
           <p className="form-hint">
-            Commands run inside your project folder using your login shell, so pnpm, NVM and other
-            Terminal tools remain available.
+            Runbox follows this folder's Finder tag color. Commands use your login shell, so pnpm,
+            NVM and other Terminal tools remain available.
           </p>
           <footer className="modal-footer">
             {onDelete ? (

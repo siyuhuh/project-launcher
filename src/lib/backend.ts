@@ -9,6 +9,18 @@ export function saveProject(project: ProjectForm): Promise<Project> {
   return invoke("save_project", { project });
 }
 
+export function setProjectFavorite(projectId: string, favorite: boolean): Promise<Project> {
+  return invoke("set_favorite", { projectId, favorite });
+}
+
+export function reorderProjects(projectIds: string[]): Promise<void> {
+  return invoke("reorder_project_list", { projectIds });
+}
+
+export function refreshFinderColors(): Promise<void> {
+  return invoke("refresh_finder_colors");
+}
+
 export function deleteProject(projectId: string): Promise<void> {
   return invoke("remove_project", { projectId });
 }
