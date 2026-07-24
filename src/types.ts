@@ -35,6 +35,23 @@ export interface GitStatus {
   behind: number;
 }
 
+export interface GitWorkspace {
+  branch: string;
+  upstream: string | null;
+  remoteUrl: string | null;
+  ahead: number;
+  behind: number;
+  files: GitFileChange[];
+  branches: string[];
+}
+
+export interface GitFileChange {
+  path: string;
+  status: string;
+  staged: boolean;
+  unstaged: boolean;
+}
+
 export type ProjectForm = Project;
 
 export interface ProjectDraft {

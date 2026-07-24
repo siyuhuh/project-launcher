@@ -1,6 +1,6 @@
 pub mod core;
 
-use core::{Project, ProjectDraft, ProjectView};
+use core::{GitWorkspace, Project, ProjectDraft, ProjectView};
 
 #[tauri::command]
 fn get_projects() -> Result<Vec<ProjectView>, String> {
@@ -67,6 +67,70 @@ fn show_in_terminal(project_id: String) -> Result<(), String> {
     core::open_project_terminal(&project_id)
 }
 
+#[tauri::command]
+async fn get_git_workspace(project_id: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::git_workspace(&project_id)).await
+}
+
+#[tauri::command]
+async fn get_git_diff(
+    project_id: String,
+    file_path: String,
+    staged: bool,
+) -> Result<String, String> {
+    run_blocking(move || core::git_diff(&project_id, &file_path, staged)).await
+}
+
+#[tauri::command]
+async fn stage_git_files(project_id: String, paths: Vec<String>) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::stage_git_paths(&project_id, &paths)).await
+}
+
+#[tauri::command]
+async fn unstage_git_files(project_id: String, paths: Vec<String>) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::unstage_git_paths(&project_id, &paths)).await
+}
+
+#[tauri::command]
+async fn create_commit(project_id: String, message: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::commit_git(&project_id, &message)).await
+}
+
+#[tauri::command]
+async fn create_branch(project_id: String, branch: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::create_git_branch(&project_id, &branch)).await
+}
+
+#[tauri::command]
+async fn switch_branch(project_id: String, branch: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::switch_git_branch(&project_id, &branch)).await
+}
+
+#[tauri::command]
+async fn fetch_repository(project_id: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::fetch_git(&project_id)).await
+}
+
+#[tauri::command]
+async fn pull_repository(project_id: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::pull_git(&project_id)).await
+}
+
+#[tauri::command]
+async fn push_repository(project_id: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::push_git(&project_id)).await
+}
+
+async fn run_blocking<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -85,6 +149,16 @@ pub fn run() {
             clear_log,
             show_in_folder,
             show_in_terminal,
+            get_git_workspace,
+            get_git_diff,
+            stage_git_files,
+            unstage_git_files,
+            create_commit,
+            create_branch,
+            switch_branch,
+            fetch_repository,
+            pull_repository,
+            push_repository,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Runbox");

@@ -14,17 +14,22 @@ import {
   Command,
   FolderOpen,
   GitBranch,
+  Grid2X2,
   LayoutGrid,
   Plus,
+  Rows3,
   Search,
   Star,
   Tag,
+  TableProperties,
   Terminal,
   X,
 } from "lucide-react";
+import { GitPanel } from "./components/GitPanel";
 import { LogPanel } from "./components/LogPanel";
 import { ProjectCard } from "./components/ProjectCard";
 import { ProjectModal } from "./components/ProjectModal";
+import { ProjectTable } from "./components/ProjectTable";
 import {
   clearProjectLog,
   deleteProject,
@@ -46,6 +51,7 @@ import "./App.css";
 type Filter = "all" | "favorites" | "running" | "stopped" | "gitChanges";
 type SortMode = "manual" | "recent" | "name";
 type TagFilter = "all" | CommandTag;
+type ViewMode = "comfortable" | "compact" | "table";
 type Toast = { id: number; message: string; tone: "success" | "error" };
 
 const EMPTY_FORM: ProjectForm = {
@@ -76,12 +82,17 @@ export default function App() {
     return saved === "manual" || saved === "name" ? saved : "recent";
   });
   const [tagFilter, setTagFilter] = useState<TagFilter>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const saved = window.localStorage.getItem("runbox.viewMode");
+    return saved === "compact" || saved === "table" ? saved : "comfortable";
+  });
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [favoritePendingIds, setFavoritePendingIds] = useState<Set<string>>(() => new Set());
   const [modalProject, setModalProject] = useState<ProjectForm | null>(null);
   const [logProjectId, setLogProjectId] = useState<string | null>(null);
+  const [gitProjectId, setGitProjectId] = useState<string | null>(null);
   const [logContents, setLogContents] = useState("");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
@@ -120,6 +131,10 @@ export default function App() {
   }, [sortMode]);
 
   useEffect(() => {
+    window.localStorage.setItem("runbox.viewMode", viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
     if (!logProjectId) {
       setLogContents("");
       return;
@@ -149,6 +164,7 @@ export default function App() {
       if (event.key === "Escape") {
         setModalProject(null);
         setLogProjectId(null);
+        setGitProjectId(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -190,6 +206,7 @@ export default function App() {
   }, [filter, projects, query, sortMode, tagFilter]);
 
   const logProject = projects.find((project) => project.id === logProjectId) ?? null;
+  const gitProject = projects.find((project) => project.id === gitProjectId) ?? null;
   const canReorder =
     sortMode === "manual" && filter === "all" && tagFilter === "all" && query.trim() === "";
 
@@ -442,9 +459,29 @@ export default function App() {
             ) : null}
             {sortMode === "manual" ? (
               <span className="reorder-hint" data-enabled={canReorder}>
-                {canReorder ? "Drag cards to reorder" : "Clear filters to reorder"}
+                {canReorder ? "Drag projects to reorder" : "Clear filters to reorder"}
               </span>
             ) : null}
+            <div className="view-switcher" role="group" aria-label="Project view">
+              <ViewButton
+                active={viewMode === "comfortable"}
+                icon={<Rows3 size={13} />}
+                label="Comfortable view"
+                onClick={() => setViewMode("comfortable")}
+              />
+              <ViewButton
+                active={viewMode === "compact"}
+                icon={<Grid2X2 size={13} />}
+                label="Compact view"
+                onClick={() => setViewMode("compact")}
+              />
+              <ViewButton
+                active={viewMode === "table"}
+                icon={<TableProperties size={13} />}
+                label="Table view"
+                onClick={() => setViewMode("table")}
+              />
+            </div>
             <label className="select-control">
               <Tag size={13} />
               <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value as TagFilter)}>
@@ -468,29 +505,60 @@ export default function App() {
           {loading ? (
             <div className="loading-state"><span className="loading-cursor">▋</span> reading projects</div>
           ) : visibleProjects.length > 0 ? (
-            <div className="project-grid">
-              {visibleProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  pending={pendingIds.has(project.id)}
-                  favoritePending={favoritePendingIds.has(project.id)}
-                  canReorder={canReorder}
-                  dragging={draggedId === project.id}
-                  dropTarget={dropTargetId === project.id}
-                  onToggle={() => void handleToggle(project)}
-                  onFavorite={() => void handleFavorite(project)}
-                  onLogs={() => setLogProjectId(project.id)}
-                  onEdit={() => setModalProject(project)}
-                  onOpenFolder={() => void openProjectFolder(project.id).catch((error) => showToast(errorMessage(error), "error"))}
-                  onOpenTerminal={() => void openProjectTerminal(project.id).catch((error) => showToast(errorMessage(error), "error"))}
-                  onDragStart={(event) => handleDragStart(event, project.id)}
-                  onDragOver={(event) => handleDragOver(event, project.id)}
-                  onDrop={(event) => void handleDrop(event, project.id)}
-                  onDragEnd={clearDragState}
-                />
-              ))}
-            </div>
+            viewMode === "table" ? (
+              <ProjectTable
+                projects={visibleProjects}
+                pendingIds={pendingIds}
+                favoritePendingIds={favoritePendingIds}
+                canReorder={canReorder}
+                draggedId={draggedId}
+                dropTargetId={dropTargetId}
+                onToggle={(project) => void handleToggle(project)}
+                onFavorite={(project) => void handleFavorite(project)}
+                onLogs={(project) => setLogProjectId(project.id)}
+                onEdit={(project) => setModalProject(project)}
+                onGit={(project) => setGitProjectId(project.id)}
+                onOpenFolder={(project) =>
+                  void openProjectFolder(project.id).catch((error) =>
+                    showToast(errorMessage(error), "error"),
+                  )
+                }
+                onOpenTerminal={(project) =>
+                  void openProjectTerminal(project.id).catch((error) =>
+                    showToast(errorMessage(error), "error"),
+                  )
+                }
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={(event, projectId) => void handleDrop(event, projectId)}
+                onDragEnd={clearDragState}
+              />
+            ) : (
+              <div className="project-grid" data-view={viewMode}>
+                {visibleProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    pending={pendingIds.has(project.id)}
+                    favoritePending={favoritePendingIds.has(project.id)}
+                    canReorder={canReorder}
+                    dragging={draggedId === project.id}
+                    dropTarget={dropTargetId === project.id}
+                    onToggle={() => void handleToggle(project)}
+                    onFavorite={() => void handleFavorite(project)}
+                    onLogs={() => setLogProjectId(project.id)}
+                    onEdit={() => setModalProject(project)}
+                    onGit={() => setGitProjectId(project.id)}
+                    onOpenFolder={() => void openProjectFolder(project.id).catch((error) => showToast(errorMessage(error), "error"))}
+                    onOpenTerminal={() => void openProjectTerminal(project.id).catch((error) => showToast(errorMessage(error), "error"))}
+                    onDragStart={(event) => handleDragStart(event, project.id)}
+                    onDragOver={(event) => handleDragOver(event, project.id)}
+                    onDrop={(event) => void handleDrop(event, project.id)}
+                    onDragEnd={clearDragState}
+                  />
+                ))}
+              </div>
+            )
           ) : (
             <EmptyState filtered={projects.length > 0} onAdd={() => setModalProject(EMPTY_FORM)} onClear={clearFilters} />
           )}
@@ -513,12 +581,44 @@ export default function App() {
           onClear={() => void clearProjectLog(logProject.id).then(() => setLogContents("")).catch((error) => showToast(errorMessage(error), "error"))}
         />
       ) : null}
+      {gitProject ? (
+        <GitPanel
+          project={gitProject}
+          onClose={() => setGitProjectId(null)}
+          onProjectRefresh={() => void refreshProjects()}
+          onNotify={showToast}
+        />
+      ) : null}
       {toast ? (
         <div className="toast" data-tone={toast.tone} role="status">
           <span>{toast.tone === "success" ? "✓" : "!"}</span>{toast.message}
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ViewButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="view-button"
+      data-active={active}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
+      {icon}
+    </button>
   );
 }
 

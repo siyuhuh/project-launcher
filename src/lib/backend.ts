@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Project, ProjectDraft, ProjectForm, ProjectView } from "../types";
+import type {
+  GitWorkspace,
+  Project,
+  ProjectDraft,
+  ProjectForm,
+  ProjectView,
+} from "../types";
 
 export function getProjects(): Promise<ProjectView[]> {
   return invoke("get_projects");
@@ -51,4 +57,48 @@ export function openProjectFolder(projectId: string): Promise<void> {
 
 export function openProjectTerminal(projectId: string): Promise<void> {
   return invoke("show_in_terminal", { projectId });
+}
+
+export function getGitWorkspace(projectId: string): Promise<GitWorkspace> {
+  return invoke("get_git_workspace", { projectId });
+}
+
+export function getGitDiff(
+  projectId: string,
+  filePath: string,
+  staged: boolean,
+): Promise<string> {
+  return invoke("get_git_diff", { projectId, filePath, staged });
+}
+
+export function stageGitFiles(projectId: string, paths: string[]): Promise<GitWorkspace> {
+  return invoke("stage_git_files", { projectId, paths });
+}
+
+export function unstageGitFiles(projectId: string, paths: string[]): Promise<GitWorkspace> {
+  return invoke("unstage_git_files", { projectId, paths });
+}
+
+export function createCommit(projectId: string, message: string): Promise<GitWorkspace> {
+  return invoke("create_commit", { projectId, message });
+}
+
+export function createBranch(projectId: string, branch: string): Promise<GitWorkspace> {
+  return invoke("create_branch", { projectId, branch });
+}
+
+export function switchBranch(projectId: string, branch: string): Promise<GitWorkspace> {
+  return invoke("switch_branch", { projectId, branch });
+}
+
+export function fetchRepository(projectId: string): Promise<GitWorkspace> {
+  return invoke("fetch_repository", { projectId });
+}
+
+export function pullRepository(projectId: string): Promise<GitWorkspace> {
+  return invoke("pull_repository", { projectId });
+}
+
+export function pushRepository(projectId: string): Promise<GitWorkspace> {
+  return invoke("push_repository", { projectId });
 }

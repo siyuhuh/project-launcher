@@ -27,6 +27,7 @@ interface Props {
   onEdit: () => void;
   onOpenFolder: () => void;
   onOpenTerminal: () => void;
+  onGit: () => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onDragOver: (event: DragEvent<HTMLElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
@@ -46,6 +47,7 @@ export function ProjectCard({
   onEdit,
   onOpenFolder,
   onOpenTerminal,
+  onGit,
   onDragStart,
   onDragOver,
   onDrop,
@@ -90,7 +92,11 @@ export function ProjectCard({
               <span className="activity-label" data-running={running} title={activityTitle(project)}>
                 {projectActivity(project)}
               </span>
-              <GitStatusBadge status={project.gitStatus} />
+              <GitStatusBadge
+                status={project.gitStatus}
+                projectName={project.name}
+                onOpen={onGit}
+              />
             </div>
           </div>
         </div>
@@ -140,12 +146,28 @@ export function ProjectCard({
   );
 }
 
-function GitStatusBadge({ status }: { status: GitStatus | null }) {
+export function GitStatusBadge({
+  status,
+  projectName,
+  onOpen,
+}: {
+  status: GitStatus | null;
+  projectName?: string;
+  onOpen?: () => void;
+}) {
+  const Wrapper = onOpen && status?.isRepo !== false ? "button" : "span";
+
   if (!status) {
     return (
-      <span className="git-status" data-state="checking" title="Checking Git status">
+      <Wrapper
+        className="git-status"
+        data-state="checking"
+        title="Checking Git status"
+        onClick={onOpen}
+        aria-label={onOpen ? `Open Git workspace for ${projectName ?? "project"}` : undefined}
+      >
         <GitBranch size={11} /> git…
-      </span>
+      </Wrapper>
     );
   }
   if (!status.isRepo) {
@@ -163,15 +185,17 @@ function GitStatusBadge({ status }: { status: GitStatus | null }) {
   const detail = status.dirty ? `${status.changed} changed` : "clean";
   const label = sync ? `${detail} ${sync}` : detail;
   return (
-    <span
+    <Wrapper
       className="git-status"
       data-state={status.dirty ? "dirty" : "clean"}
       title={`${status.branch} · ${label}`}
+      onClick={onOpen}
+      aria-label={onOpen ? `Open Git workspace for ${projectName ?? "project"}` : undefined}
     >
       <GitBranch size={11} />
       <strong>{status.branch}</strong>
       <span>{label}</span>
-    </span>
+    </Wrapper>
   );
 }
 

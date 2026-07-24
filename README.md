@@ -9,7 +9,9 @@ Runbox remembers each project directory and start command, then gives you one sh
 - read recent output without finding the right terminal tab;
 - pin the few projects you use every day and sort by last opened, name, or manual order;
 - filter by status or project tool and see when each project was last opened;
+- switch between comfortable cards, compact cards, and a Notion-style table;
 - inspect each project's Git branch, clean/changed state, and ahead/behind counts;
+- review diffs, stage files, commit, switch branches, and sync a repository without leaving Runbox;
 - mirror Finder tag colors from the project folders on macOS;
 - use the same entries from Terminal with `p my-project`;
 - keep processes running when the desktop window is closed.
@@ -129,8 +131,30 @@ The detected command is always editable before saving.
 
 For folders inside a Git worktree, Runbox reads `git status --porcelain=v2 --branch` in the
 background and shows the branch, clean/changed state, and ahead/behind counts. The **Git changes**
-sidebar filter narrows the workspace to projects with local changes. Runbox never fetches, pulls, or
-pushes; this is a local read-only status check.
+sidebar filter narrows the workspace to projects with local changes.
+
+Click the Git status on a project to open its Git workspace. The first Git client release covers the
+core GitHub Desktop workflow:
+
+- review staged and unstaged file diffs;
+- stage or unstage individual files or all files;
+- commit staged changes;
+- switch local branches or create a branch;
+- fetch, fast-forward pull, push, or publish a branch.
+
+Background checks remain local and read-only. Network operations only run after an explicit click.
+Pull uses `--ff-only`, Runbox does not force-push, and destructive discard/reset actions are not
+exposed.
+
+## Project views
+
+All views use the same project data, search, filters, sort order, pinned projects, and Git status:
+
+- **Comfortable** — two-column cards with more room for branch and command details;
+- **Compact** — the original three-column overview for large workspaces;
+- **Table** — a Notion-style data grid for scanning project, activity, Git, command, and actions.
+
+The selected view is saved locally and restored the next time Runbox opens.
 
 ### Finder tag colors on macOS
 

@@ -68,6 +68,27 @@ pub struct GitStatus {
     pub behind: u32,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspace {
+    pub branch: String,
+    pub upstream: Option<String>,
+    pub remote_url: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub files: Vec<GitFileChange>,
+    pub branches: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileChange {
+    pub path: String,
+    pub status: String,
+    pub staged: bool,
+    pub unstaged: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProcessStatus {
@@ -439,10 +460,10 @@ pub fn stop_project(project_id: &str) -> Result<ProjectView, String> {
     let project = find_project(project_id)?;
     let mut runtime = read_runtime(&project.id)?;
 
-    if let Some(pid) = runtime.pid {
-        if process_is_running(pid) {
-            terminate_process_group(pid)?;
-        }
+    if let Some(pid) = runtime.pid
+        && process_is_running(pid)
+    {
+        terminate_process_group(pid)?;
     }
 
     runtime.pid = None;
@@ -517,6 +538,146 @@ pub fn open_project_terminal(project_id: &str) -> Result<(), String> {
     } else {
         Err("Could not open a terminal window".to_string())
     }
+}
+
+pub fn git_workspace(project_id: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    read_git_workspace(&project.path)
+}
+
+pub fn git_diff(project_id: &str, file_path: &str, staged: bool) -> Result<String, String> {
+    let project = find_project(project_id)?;
+    validate_git_path(file_path)?;
+
+    let mut args = vec!["diff", "--no-ext-diff", "--color=never", "--unified=3"];
+    if staged {
+        args.push("--cached");
+    }
+    args.extend(["--", file_path]);
+    let output = run_git(&project.path, &args)?;
+    let mut contents = command_output(&output);
+
+    if !staged && contents.trim().is_empty() {
+        let untracked = read_git_workspace(&project.path)?
+            .files
+            .into_iter()
+            .any(|file| file.path == file_path && file.status == "??");
+        if untracked {
+            let output = run_git_allow_status(
+                &project.path,
+                &[
+                    "diff",
+                    "--no-index",
+                    "--no-ext-diff",
+                    "--color=never",
+                    "--unified=3",
+                    "--",
+                    "/dev/null",
+                    file_path,
+                ],
+                &[0, 1],
+            )?;
+            contents = command_output(&output);
+        }
+    }
+
+    const DIFF_LIMIT: usize = 512 * 1024;
+    if contents.len() > DIFF_LIMIT {
+        contents.truncate(DIFF_LIMIT);
+        contents.push_str("\n\n… diff truncated by Runbox …\n");
+    }
+    Ok(contents)
+}
+
+pub fn stage_git_paths(project_id: &str, paths: &[String]) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let paths = validate_git_paths(paths)?;
+    let mut args = vec!["add", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    run_git_checked(&project.path, &args)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn unstage_git_paths(project_id: &str, paths: &[String]) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let paths = validate_git_paths(paths)?;
+    let mut args = vec!["restore", "--staged", "--"];
+    args.extend(paths.iter().map(String::as_str));
+
+    if run_git_checked(&project.path, &args).is_err() {
+        let mut fallback = vec!["rm", "--cached", "-r", "--"];
+        fallback.extend(paths.iter().map(String::as_str));
+        run_git_checked(&project.path, &fallback)?;
+    }
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn commit_git(project_id: &str, message: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let message = message.trim();
+    if message.is_empty() {
+        return Err("Commit message is required".to_string());
+    }
+    run_git_checked(&project.path, &["commit", "-m", message])?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn create_git_branch(project_id: &str, branch: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+    run_git_checked(&project.path, &["check-ref-format", "--branch", branch])?;
+    run_git_checked(&project.path, &["switch", "-c", branch])?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn switch_git_branch(project_id: &str, branch: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Err("Choose a branch".to_string());
+    }
+    run_git_checked(&project.path, &["switch", branch])?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn fetch_git(project_id: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    run_git_checked(&project.path, &["fetch"])?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn pull_git(project_id: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    run_git_checked(&project.path, &["pull", "--ff-only"])?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn push_git(project_id: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let workspace = read_git_workspace(&project.path)?;
+    if workspace.upstream.is_none() {
+        if workspace.remote_url.is_none() {
+            return Err("No origin remote is configured for this project".to_string());
+        }
+        run_git_checked(
+            &project.path,
+            &["push", "--set-upstream", "origin", &workspace.branch],
+        )?;
+    } else {
+        run_git_checked(&project.path, &["push"])?;
+    }
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
 }
 
 pub fn find_project(query: &str) -> Result<Project, String> {
@@ -712,10 +873,10 @@ fn now() -> u64 {
 fn finder_tag_color(path: &str) -> Option<String> {
     let (cached_color, should_refresh) = {
         let mut cache = finder_tag_cache().lock().ok()?;
-        if let Some((checked_at, color)) = cache.entries.get(path) {
-            if checked_at.elapsed() < FINDER_TAG_CACHE_TTL {
-                return color.clone();
-            }
+        if let Some((checked_at, color)) = cache.entries.get(path)
+            && checked_at.elapsed() < FINDER_TAG_CACHE_TTL
+        {
+            return color.clone();
         }
         let cached_color = cache.entries.get(path).and_then(|(_, color)| color.clone());
         let should_refresh = cache.pending.insert(path.to_string());
@@ -753,10 +914,10 @@ fn finder_tag_sender() -> &'static mpsc::Sender<String> {
 fn git_status(path: &str) -> Option<GitStatus> {
     let (cached_status, should_refresh) = {
         let mut cache = git_status_cache().lock().ok()?;
-        if let Some((checked_at, status)) = cache.entries.get(path) {
-            if checked_at.elapsed() < GIT_STATUS_CACHE_TTL {
-                return status.clone();
-            }
+        if let Some((checked_at, status)) = cache.entries.get(path)
+            && checked_at.elapsed() < GIT_STATUS_CACHE_TTL
+        {
+            return status.clone();
         }
         let cached_status = cache
             .entries
@@ -792,6 +953,236 @@ fn git_status_sender() -> &'static mpsc::Sender<String> {
         });
         sender
     })
+}
+
+fn invalidate_git_status(path: &str) {
+    if let Ok(mut cache) = git_status_cache().lock() {
+        cache.entries.remove(path);
+        cache.pending.remove(path);
+    }
+}
+
+fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
+    let output = run_git(
+        path,
+        &[
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "-z",
+        ],
+    )?;
+    if !output.status.success() {
+        return Err(git_error(&output));
+    }
+
+    let mut branch = "HEAD".to_string();
+    let mut upstream = None;
+    let mut ahead = 0;
+    let mut behind = 0;
+    let mut files = Vec::new();
+    let records: Vec<&[u8]> = output.stdout.split(|byte| *byte == 0).collect();
+    let mut index = 0;
+
+    while index < records.len() {
+        let record = String::from_utf8_lossy(records[index]);
+        if let Some(value) = record.strip_prefix("# branch.head ") {
+            branch = if value == "(detached)" {
+                "HEAD detached".to_string()
+            } else {
+                value.to_string()
+            };
+        } else if let Some(value) = record.strip_prefix("# branch.upstream ") {
+            upstream = Some(value.to_string());
+        } else if let Some(value) = record.strip_prefix("# branch.ab ") {
+            let mut values = value.split_whitespace();
+            ahead = values
+                .next()
+                .and_then(|value| value.strip_prefix('+'))
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0);
+            behind = values
+                .next()
+                .and_then(|value| value.strip_prefix('-'))
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0);
+        } else if record.starts_with("1 ") {
+            if let Some(file) = parse_git_file_record(&record, 9) {
+                files.push(file);
+            }
+        } else if record.starts_with("2 ") {
+            if let Some(file) = parse_git_file_record(&record, 10) {
+                files.push(file);
+            }
+            index += 1;
+        } else if record.starts_with("u ") {
+            if let Some(mut file) = parse_git_file_record(&record, 11) {
+                file.status = "UU".to_string();
+                file.staged = true;
+                file.unstaged = true;
+                files.push(file);
+            }
+        } else if let Some(file_path) = record.strip_prefix("? ") {
+            files.push(GitFileChange {
+                path: file_path.to_string(),
+                status: "??".to_string(),
+                staged: false,
+                unstaged: true,
+            });
+        }
+        index += 1;
+    }
+
+    files.sort_by_key(|file| file.path.to_lowercase());
+    let branches_output = run_git(
+        path,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )?;
+    let mut branches = if branches_output.status.success() {
+        String::from_utf8_lossy(&branches_output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    branches.sort_by_key(|value| value.to_lowercase());
+
+    let remote_output = run_git(path, &["remote", "get-url", "origin"])?;
+    let remote_url = remote_output
+        .status
+        .success()
+        .then(|| {
+            String::from_utf8_lossy(&remote_output.stdout)
+                .trim()
+                .to_string()
+        })
+        .filter(|value| !value.is_empty());
+
+    Ok(GitWorkspace {
+        branch,
+        upstream,
+        remote_url,
+        ahead,
+        behind,
+        files,
+        branches,
+    })
+}
+
+fn parse_git_file_record(record: &str, fields: usize) -> Option<GitFileChange> {
+    let mut parts = record.splitn(fields, ' ');
+    let record_kind = parts.next()?;
+    let xy = parts.next()?;
+    let file_path = parts.last()?.to_string();
+    let mut chars = xy.chars();
+    let index_status = chars.next().unwrap_or('.');
+    let worktree_status = chars.next().unwrap_or('.');
+    let status = if record_kind == "u" {
+        "UU".to_string()
+    } else {
+        [index_status, worktree_status]
+            .into_iter()
+            .filter(|value| *value != '.')
+            .collect()
+    };
+
+    Some(GitFileChange {
+        path: file_path,
+        status,
+        staged: index_status != '.',
+        unstaged: worktree_status != '.',
+    })
+}
+
+fn validate_git_paths(paths: &[String]) -> Result<Vec<String>, String> {
+    if paths.is_empty() {
+        return Err("Choose at least one changed file".to_string());
+    }
+    paths
+        .iter()
+        .map(|path| {
+            validate_git_path(path)?;
+            Ok(path.clone())
+        })
+        .collect()
+}
+
+fn validate_git_path(path: &str) -> Result<(), String> {
+    use std::path::Component;
+
+    let value = Path::new(path);
+    if path.trim().is_empty()
+        || value.is_absolute()
+        || value.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err("Invalid repository file path".to_string());
+    }
+    Ok(())
+}
+
+fn run_git(path: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
+        .output()
+        .map_err(|error| format!("Could not run Git: {error}"))
+}
+
+fn run_git_allow_status(
+    path: &str,
+    args: &[&str],
+    allowed_codes: &[i32],
+) -> Result<std::process::Output, String> {
+    let output = run_git(path, args)?;
+    let code = output.status.code().unwrap_or(-1);
+    if allowed_codes.contains(&code) {
+        Ok(output)
+    } else {
+        Err(git_error(&output))
+    }
+}
+
+fn run_git_checked(path: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    let output = run_git(path, args)?;
+    if output.status.success() {
+        Ok(output)
+    } else {
+        Err(git_error(&output))
+    }
+}
+
+fn git_error(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        "Git command failed".to_string()
+    }
+}
+
+fn command_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if stdout.trim().is_empty() {
+        String::from_utf8_lossy(&output.stderr).to_string()
+    } else {
+        stdout
+    }
 }
 
 fn read_git_status(path: &str) -> Option<GitStatus> {
@@ -910,4 +1301,73 @@ fn read_finder_tag_color(_path: &str) -> Option<String> {
 
 fn display_error(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_git_file_record, read_git_workspace, run_git_checked, validate_git_path};
+    use std::fs;
+    use uuid::Uuid;
+
+    #[test]
+    fn parses_worktree_and_staged_git_records() {
+        let unstaged = parse_git_file_record(
+            "1 .M N... 100644 100644 100644 abc123 abc123 src/App file.tsx",
+            9,
+        )
+        .expect("unstaged file");
+        assert_eq!(unstaged.path, "src/App file.tsx");
+        assert!(!unstaged.staged);
+        assert!(unstaged.unstaged);
+        assert_eq!(unstaged.status, "M");
+
+        let staged =
+            parse_git_file_record("1 A. N... 000000 100644 100644 000000 abc123 src/new.ts", 9)
+                .expect("staged file");
+        assert!(staged.staged);
+        assert!(!staged.unstaged);
+        assert_eq!(staged.status, "A");
+    }
+
+    #[test]
+    fn rejects_paths_outside_the_repository() {
+        assert!(validate_git_path("src/App.tsx").is_ok());
+        assert!(validate_git_path("../secrets.txt").is_err());
+        assert!(validate_git_path("/tmp/secrets.txt").is_err());
+    }
+
+    #[test]
+    fn reads_staged_and_unstaged_changes_from_a_real_repository() {
+        let directory = std::env::temp_dir().join(format!("runbox-git-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("temporary repository");
+        let path = directory.to_string_lossy();
+
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(directory.join("notes.txt"), "first\n").expect("initial file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+
+        fs::write(directory.join("notes.txt"), "first\nsecond\n").expect("modified file");
+        let unstaged = read_git_workspace(&path).expect("unstaged workspace");
+        assert!(
+            unstaged
+                .files
+                .iter()
+                .any(|file| file.path == "notes.txt" && file.unstaged && !file.staged)
+        );
+
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage change");
+        let staged = read_git_workspace(&path).expect("staged workspace");
+        assert!(
+            staged
+                .files
+                .iter()
+                .any(|file| file.path == "notes.txt" && file.staged && !file.unstaged)
+        );
+
+        fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
 }
