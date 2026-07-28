@@ -9,12 +9,15 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  Sparkles,
   X,
 } from "lucide-react";
 import {
   createBranch,
   createCommit,
   fetchRepository,
+  generateCommitMessage,
+  getCommitMessageProviders,
   getGitDiff,
   getGitWorkspace,
   pullRepository,
@@ -23,9 +26,15 @@ import {
   switchBranch,
   unstageGitFiles,
 } from "../lib/backend";
-import type { GitFileChange, GitWorkspace, ProjectView } from "../types";
+import type {
+  CommitMessageProvider,
+  GitFileChange,
+  GitWorkspace,
+  ProjectView,
+} from "../types";
 
 type Selection = { path: string; staged: boolean };
+const COMMIT_PROVIDER_STORAGE_KEY = "runbox.commitProvider";
 
 interface Props {
   project: ProjectView;
@@ -47,6 +56,9 @@ export function GitPanel({
   const [diffLoading, setDiffLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
+  const [commitProviders, setCommitProviders] = useState<CommitMessageProvider[]>([]);
+  const [commitProviderId, setCommitProviderId] = useState("");
+  const [providersLoading, setProvidersLoading] = useState(true);
   const [branchDraft, setBranchDraft] = useState("");
   const busyRef = useRef(false);
 
@@ -75,6 +87,30 @@ export function GitPanel({
   useEffect(() => {
     busyRef.current = Boolean(busy);
   }, [busy]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCommitMessageProviders()
+      .then((providers) => {
+        if (cancelled) return;
+        setCommitProviders(providers);
+        const saved = window.localStorage.getItem(COMMIT_PROVIDER_STORAGE_KEY);
+        const preferred =
+          providers.find((provider) => provider.id === saved) ??
+          providers.find((provider) => provider.local) ??
+          providers[0];
+        setCommitProviderId(preferred?.id ?? "");
+      })
+      .catch((error) => {
+        if (!cancelled) onNotify(errorMessage(error), "error");
+      })
+      .finally(() => {
+        if (!cancelled) setProvidersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onNotify]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -159,6 +195,21 @@ export function GitPanel({
       `Committed to ${workspace?.branch ?? "branch"}`,
     );
     setCommitMessage("");
+  }
+
+  async function handleGenerateCommitMessage() {
+    if (!commitProviderId || stagedFiles.length === 0 || busy) return;
+    setBusy("generate");
+    try {
+      const message = await generateCommitMessage(project.id, commitProviderId);
+      setCommitMessage(message);
+      const provider = commitProviders.find((item) => item.id === commitProviderId);
+      onNotify(`Drafted with ${provider?.name ?? "AI"}`, "success");
+    } catch (error) {
+      onNotify(errorMessage(error), "error");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function handleCreateBranch() {
@@ -353,6 +404,55 @@ export function GitPanel({
                   </div>
                 ) : null}
                 <div className="git-commit-box">
+                  <div
+                    className="git-ai-row"
+                    title={
+                      commitProviders.find((provider) => provider.id === commitProviderId)?.local
+                        ? "Only the staged diff is read. It stays on this Mac."
+                        : "Only the staged diff is sent to the selected provider."
+                    }
+                  >
+                    <label className="git-provider-select">
+                      <Sparkles size={12} />
+                      <select
+                        value={commitProviderId}
+                        onChange={(event) => {
+                          const providerId = event.target.value;
+                          setCommitProviderId(providerId);
+                          window.localStorage.setItem(COMMIT_PROVIDER_STORAGE_KEY, providerId);
+                        }}
+                        disabled={providersLoading || commitProviders.length === 0 || Boolean(busy)}
+                        aria-label="Commit message provider"
+                      >
+                        {commitProviders.length === 0 ? (
+                          <option value="">
+                            {providersLoading ? "Detecting AI…" : "No AI provider"}
+                          </option>
+                        ) : null}
+                        {commitProviders.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.name} · {provider.local ? "local" : "cloud"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="git-generate-button"
+                      onClick={() => void handleGenerateCommitMessage()}
+                      disabled={
+                        !commitProviderId ||
+                        stagedFiles.length === 0 ||
+                        Boolean(busy)
+                      }
+                    >
+                      {busy === "generate" ? (
+                        <LoaderCircle className="spin" size={12} />
+                      ) : (
+                        <Sparkles size={12} />
+                      )}
+                      Generate
+                    </button>
+                  </div>
                   <textarea
                     value={commitMessage}
                     onChange={(event) => setCommitMessage(event.target.value)}
@@ -362,6 +462,7 @@ export function GitPanel({
                     disabled={Boolean(busy)}
                   />
                   <button
+                    className="git-commit-button"
                     onClick={() => void handleCommit()}
                     disabled={!commitMessage.trim() || stagedFiles.length === 0 || Boolean(busy)}
                   >

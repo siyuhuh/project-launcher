@@ -1,6 +1,6 @@
 pub mod core;
 
-use core::{GitWorkspace, Project, ProjectDraft, ProjectView};
+use core::{CommitMessageProvider, GitWorkspace, Project, ProjectDraft, ProjectView};
 
 #[tauri::command]
 fn get_projects() -> Result<Vec<ProjectView>, String> {
@@ -97,6 +97,19 @@ async fn create_commit(project_id: String, message: String) -> Result<GitWorkspa
 }
 
 #[tauri::command]
+async fn get_commit_message_providers() -> Result<Vec<CommitMessageProvider>, String> {
+    run_blocking(core::list_commit_message_providers).await
+}
+
+#[tauri::command]
+async fn generate_commit_message(
+    project_id: String,
+    provider_id: String,
+) -> Result<String, String> {
+    run_blocking(move || core::generate_commit_message(&project_id, &provider_id)).await
+}
+
+#[tauri::command]
 async fn create_branch(project_id: String, branch: String) -> Result<GitWorkspace, String> {
     run_blocking(move || core::create_git_branch(&project_id, &branch)).await
 }
@@ -154,6 +167,8 @@ pub fn run() {
             stage_git_files,
             unstage_git_files,
             create_commit,
+            get_commit_message_providers,
+            generate_commit_message,
             create_branch,
             switch_branch,
             fetch_repository,

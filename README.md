@@ -12,6 +12,7 @@ Runbox remembers each project directory and start command, then gives you one sh
 - switch between comfortable cards, compact cards, and a Notion-style table;
 - inspect each project's Git branch, clean/changed state, and ahead/behind counts;
 - review diffs, stage files, commit, switch branches, and sync a repository without leaving Runbox;
+- draft commit messages with a local Ollama model, Codex CLI, or Cursor Agent;
 - mirror Finder tag colors from the project folders on macOS;
 - use the same entries from Terminal with `p my-project`;
 - keep processes running when the desktop window is closed.
@@ -145,6 +146,24 @@ core GitHub Desktop workflow:
 Background checks remain local and read-only. Network operations only run after an explicit click.
 Pull uses `--ff-only`, Runbox does not force-push, and destructive discard/reset actions are not
 exposed.
+
+### AI commit messages
+
+Stage the files you want to commit, choose a provider in the commit box, and click **Generate**.
+Runbox fills the commit textarea so you can review or edit the result before committing. It never
+commits automatically.
+
+Providers are discovered from the login shell:
+
+- **Ollama** — every model shown by `ollama list` is available. The staged diff stays on the Mac.
+- **Codex** — uses `codex exec` with an ephemeral session and a read-only sandbox. It reuses the
+  existing Codex CLI login.
+- **Cursor** — uses `cursor-agent` in read-only ask mode and reuses the existing Cursor login.
+
+Only staged changes, their summary, the branch name, and recent commit subjects are included in the
+generation context. Codex and Cursor are cloud providers, so their selected context is sent to that
+provider; choose Ollama when repository content must remain local. Runbox does not store model
+credentials or generated diff context.
 
 ## Project views
 

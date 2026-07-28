@@ -52,6 +52,13 @@ export interface GitFileChange {
   unstaged: boolean;
 }
 
+export interface CommitMessageProvider {
+  id: string;
+  name: string;
+  detail: string;
+  local: boolean;
+}
+
 export type ProjectForm = Project;
 
 export interface ProjectDraft {

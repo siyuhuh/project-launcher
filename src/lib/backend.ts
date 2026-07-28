@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CommitMessageProvider,
   GitWorkspace,
   Project,
   ProjectDraft,
@@ -81,6 +82,17 @@ export function unstageGitFiles(projectId: string, paths: string[]): Promise<Git
 
 export function createCommit(projectId: string, message: string): Promise<GitWorkspace> {
   return invoke("create_commit", { projectId, message });
+}
+
+export function getCommitMessageProviders(): Promise<CommitMessageProvider[]> {
+  return invoke("get_commit_message_providers");
+}
+
+export function generateCommitMessage(
+  projectId: string,
+  providerId: string,
+): Promise<string> {
+  return invoke("generate_commit_message", { projectId, providerId });
 }
 
 export function createBranch(projectId: string, branch: string): Promise<GitWorkspace> {

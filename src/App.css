@@ -1586,7 +1586,66 @@ button.git-status:active {
   color: var(--quiet);
 }
 
-.git-commit-box button {
+.git-ai-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.git-provider-select {
+  display: flex;
+  min-width: 0;
+  height: 28px;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  color: var(--quiet);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0a0d0b;
+}
+
+.git-provider-select select {
+  min-width: 0;
+  flex: 1;
+  color: var(--muted);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 8px;
+}
+
+.git-generate-button {
+  display: inline-flex;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #171c18;
+  font-size: 8px;
+  font-weight: 650;
+}
+
+.git-generate-button:hover:not(:disabled) {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green), transparent 68%);
+  background: #1b241d;
+}
+
+.git-generate-button:active:not(:disabled),
+.git-commit-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.git-commit-button {
   display: inline-flex;
   height: 31px;
   align-items: center;
