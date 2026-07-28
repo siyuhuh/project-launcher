@@ -1379,6 +1379,8 @@ button.git-status:active {
 }
 
 .git-workspace {
+  --git-mono: "Fira Code Variable", "Fira Code", "SFMono-Regular", "SF Mono", Menlo,
+    Monaco, Consolas, monospace;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: min(1180px, 100%);
@@ -1389,6 +1391,7 @@ button.git-status:active {
   border-radius: 11px;
   background: #0c0f0d;
   box-shadow: 0 32px 100px rgb(0 0 0 / 62%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   opacity: 1;
   transform: scale(1);
   transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
@@ -1406,7 +1409,7 @@ button.git-status:active {
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 15px 16px 13px 18px;
+  padding: 17px 17px 15px 19px;
   border-bottom: 1px solid var(--line);
   background: #101411;
 }
@@ -1420,7 +1423,7 @@ button.git-status:active {
   align-items: center;
   gap: 6px;
   color: var(--green);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.11em;
 }
@@ -1428,7 +1431,7 @@ button.git-status:active {
 .git-workspace-header h2 {
   margin: 5px 0 0;
   color: var(--text);
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 650;
   letter-spacing: -0.025em;
 }
@@ -1438,7 +1441,7 @@ button.git-status:active {
   max-width: 720px;
   margin: 4px 0 0;
   color: var(--quiet);
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1469,7 +1472,7 @@ button.git-status:active {
 .git-toolbar {
   display: flex;
   min-width: 0;
-  min-height: 43px;
+  min-height: 49px;
   align-items: center;
   padding: 6px 12px;
   gap: 7px;
@@ -1480,7 +1483,7 @@ button.git-status:active {
 .git-branch-select,
 .git-new-branch {
   display: flex;
-  height: 30px;
+  height: 34px;
   align-items: center;
   overflow: hidden;
   color: var(--muted);
@@ -1504,7 +1507,7 @@ button.git-status:active {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .git-new-branch {
@@ -1520,7 +1523,7 @@ button.git-status:active {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .git-new-branch input::placeholder {
@@ -1545,7 +1548,7 @@ button.git-status:active {
 
 .git-view-tabs {
   display: flex;
-  height: 30px;
+  height: 34px;
   align-items: center;
   padding: 2px;
   gap: 2px;
@@ -1556,14 +1559,14 @@ button.git-status:active {
 
 .git-view-tabs button {
   display: inline-flex;
-  height: 24px;
+  height: 28px;
   align-items: center;
   padding: 0 7px;
   gap: 5px;
   color: var(--quiet);
   border-radius: 4px;
   background: transparent;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .git-view-tabs button[data-active="true"] {
@@ -1574,7 +1577,7 @@ button.git-status:active {
 
 .git-view-tabs button span {
   color: var(--green);
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .git-sync-actions {
@@ -1586,7 +1589,7 @@ button.git-status:active {
 
 .git-sync-actions button {
   display: inline-flex;
-  height: 30px;
+  height: 34px;
   align-items: center;
   padding: 0 9px;
   gap: 5px;
@@ -1594,7 +1597,7 @@ button.git-status:active {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #151a16;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .git-sync-actions button:hover:not(:disabled) {
@@ -1621,7 +1624,7 @@ button.git-status:active {
 
 .git-workspace-body {
   display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
+  grid-template-columns: 360px minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
 }
@@ -1647,7 +1650,7 @@ button.git-status:active {
 
 .git-history-scope {
   display: flex;
-  min-height: 47px;
+  min-height: 55px;
   align-items: center;
   justify-content: space-between;
   padding: 7px 9px 7px 12px;
@@ -1667,7 +1670,7 @@ button.git-status:active {
   align-items: center;
   gap: 5px;
   color: var(--quiet);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -1675,21 +1678,21 @@ button.git-status:active {
 .git-history-scope strong {
   overflow: hidden;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .git-history-scope button {
-  height: 23px;
+  height: 27px;
   flex: 0 0 auto;
   padding: 0 7px;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 4px;
   background: #171c18;
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .git-history-scope button:hover {
@@ -1701,17 +1704,17 @@ button.git-status:active {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 5px;
+  padding: 7px;
 }
 
 .git-history-row {
   display: grid;
-  grid-template-columns: 17px minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   width: 100%;
   min-width: 0;
   align-items: stretch;
-  padding: 0 7px 0 2px;
-  gap: 5px;
+  padding: 0 9px 0 3px;
+  gap: 7px;
   color: var(--muted);
   border-radius: 5px;
   background: transparent;
@@ -1730,14 +1733,14 @@ button.git-status:active {
 .git-history-rail {
   position: relative;
   display: grid;
-  min-height: 55px;
+  min-height: 68px;
   place-items: center;
 }
 
 .git-history-rail::before,
 .git-history-rail::after {
   position: absolute;
-  left: 8px;
+  left: 9px;
   width: 1px;
   height: calc(50% - 4px);
   content: "";
@@ -1777,14 +1780,14 @@ button.git-status:active {
   min-width: 0;
   flex-direction: column;
   justify-content: center;
-  padding: 7px 0;
-  gap: 3px;
+  padding: 9px 0;
+  gap: 4px;
 }
 
 .git-history-copy > strong {
   overflow: hidden;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1797,7 +1800,7 @@ button.git-status:active {
 .git-history-copy > span {
   overflow: hidden;
   color: var(--quiet);
-  font-size: 7px;
+  font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1816,7 +1819,7 @@ button.git-status:active {
   color: #9dc092;
   border-radius: 3px;
   background: rgb(118 169 103 / 10%);
-  font-size: 6px;
+  font-size: 8px;
   font-style: normal;
   text-overflow: ellipsis;
 }
@@ -1824,14 +1827,14 @@ button.git-status:active {
 .git-history-row > code {
   align-self: center;
   color: #69736c;
-  font-family: inherit;
-  font-size: 7px;
+  font-family: var(--git-mono);
+  font-size: 9px;
 }
 
 .git-history-more {
   display: flex;
   width: calc(100% - 10px);
-  height: 28px;
+  height: 34px;
   align-items: center;
   justify-content: center;
   margin: 5px;
@@ -1840,7 +1843,7 @@ button.git-status:active {
   border: 1px solid var(--line);
   border-radius: 5px;
   background: #151a16;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .git-history-more:hover:not(:disabled) {
@@ -1851,7 +1854,7 @@ button.git-status:active {
 .git-history-end {
   padding: 12px;
   color: #525b54;
-  font-size: 7px;
+  font-size: 9px;
   text-align: center;
 }
 
@@ -1870,13 +1873,13 @@ button.git-status:active {
 
 .git-history-empty strong {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .git-history-empty span {
   max-width: 220px;
-  font-size: 7px;
-  line-height: 1.5;
+  font-size: 10px;
+  line-height: 1.6;
 }
 
 .git-loading-state,
@@ -1885,7 +1888,7 @@ button.git-status:active {
   align-items: center;
   justify-content: center;
   color: var(--quiet);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .git-loading-state {
@@ -1913,7 +1916,7 @@ button.git-status:active {
 
 .git-clean-state span {
   color: var(--quiet);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .git-file-section {
@@ -1922,12 +1925,12 @@ button.git-status:active {
 
 .git-file-section > header {
   display: flex;
-  height: 34px;
+  height: 40px;
   align-items: center;
   justify-content: space-between;
   padding: 0 8px 0 12px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.03em;
 }
@@ -1938,12 +1941,12 @@ button.git-status:active {
 }
 
 .git-file-section > header button {
-  height: 23px;
+  height: 27px;
   padding: 0 6px;
   color: var(--quiet);
   border-radius: 4px;
   background: transparent;
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .git-file-section > header button:hover:not(:disabled) {
@@ -1953,13 +1956,13 @@ button.git-status:active {
 
 .git-file-list {
   display: grid;
-  padding: 0 6px 7px;
-  gap: 1px;
+  padding: 0 7px 8px;
+  gap: 2px;
 }
 
 .git-file-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 27px;
+  grid-template-columns: minmax(0, 1fr) 31px;
   min-width: 0;
   align-items: center;
   border-radius: 5px;
@@ -1977,7 +1980,7 @@ button.git-status:active {
 .git-file-main {
   display: flex;
   min-width: 0;
-  height: 31px;
+  height: 37px;
   align-items: center;
   padding: 0 8px;
   gap: 7px;
@@ -1989,7 +1992,7 @@ button.git-status:active {
 .git-file-main > span:last-child {
   min-width: 0;
   overflow: hidden;
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2000,14 +2003,14 @@ button.git-status:active {
 
 .git-file-status {
   display: grid;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   color: var(--amber);
   border: 1px solid color-mix(in srgb, var(--amber), transparent 70%);
   border-radius: 4px;
   background: color-mix(in srgb, var(--amber), transparent 92%);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 750;
   place-items: center;
 }
@@ -2027,8 +2030,8 @@ button.git-status:active {
 
 .git-stage-toggle {
   display: grid;
-  width: 23px;
-  height: 23px;
+  width: 27px;
+  height: 27px;
   padding: 0;
   color: var(--quiet);
   border-radius: 4px;
@@ -2044,24 +2047,24 @@ button.git-status:active {
 .git-commit-box {
   display: grid;
   margin-top: auto;
-  padding: 10px;
-  gap: 7px;
+  padding: 12px;
+  gap: 9px;
   border-top: 1px solid var(--line);
   background: #101411;
 }
 
 .git-commit-box textarea {
   width: 100%;
-  min-height: 62px;
+  min-height: 72px;
   resize: vertical;
-  padding: 8px 9px;
+  padding: 10px 11px;
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 6px;
   outline: 0;
   background: #0a0d0b;
-  font-size: 9px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .git-commit-box textarea::placeholder {
@@ -2078,7 +2081,7 @@ button.git-status:active {
 .git-provider-select {
   display: flex;
   min-width: 0;
-  height: 28px;
+  height: 32px;
   flex: 1;
   align-items: center;
   gap: 5px;
@@ -2097,12 +2100,12 @@ button.git-status:active {
   outline: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .git-generate-button {
   display: inline-flex;
-  height: 28px;
+  height: 32px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -2112,7 +2115,7 @@ button.git-status:active {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #171c18;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 650;
 }
 
@@ -2153,13 +2156,13 @@ button.git-status:active {
 
 .git-local-ai-copy strong {
   color: var(--text);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .git-local-ai-copy span {
   color: var(--quiet);
-  font-size: 7px;
-  line-height: 1.45;
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .git-local-ai-copy code {
@@ -2171,8 +2174,8 @@ button.git-status:active {
   color: var(--muted);
   border-radius: 3px;
   background: #090c0a;
-  font-family: inherit;
-  font-size: 7px;
+  font-family: var(--git-mono);
+  font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2195,11 +2198,11 @@ button.git-status:active {
   color: var(--quiet);
   border: 0;
   background: transparent;
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .git-local-ai-actions button:last-child {
-  height: 22px;
+  height: 27px;
   padding: 0 6px;
   color: var(--text);
   border: 1px solid var(--line);
@@ -2221,14 +2224,14 @@ button.git-status:active {
 
 .git-commit-button {
   display: inline-flex;
-  height: 31px;
+  height: 36px;
   align-items: center;
   justify-content: center;
   gap: 6px;
   color: #0b100c;
   border-radius: 6px;
   background: var(--green);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -2250,8 +2253,8 @@ button.git-status:active {
 
 .git-commit-detail-header {
   display: grid;
-  padding: 13px 15px 11px;
-  gap: 8px;
+  padding: 16px 18px 14px;
+  gap: 10px;
   border-bottom: 1px solid var(--line);
   background: #101411;
 }
@@ -2271,7 +2274,7 @@ button.git-status:active {
 .git-commit-title-row h3 {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.02em;
   line-height: 1.35;
@@ -2291,12 +2294,12 @@ button.git-status:active {
   border: 1px solid rgb(118 169 103 / 20%);
   border-radius: 4px;
   background: rgb(118 169 103 / 8%);
-  font-size: 6px;
+  font-size: 9px;
 }
 
 .git-revert-button {
   display: inline-flex;
-  height: 27px;
+  height: 31px;
   flex: 0 0 auto;
   align-items: center;
   padding: 0 8px;
@@ -2305,7 +2308,7 @@ button.git-status:active {
   border: 1px solid var(--line);
   border-radius: 5px;
   background: #171c18;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .git-revert-button:hover:not(:disabled) {
@@ -2318,8 +2321,8 @@ button.git-status:active {
   max-width: 760px;
   margin: -1px 0 0;
   color: var(--muted);
-  font-size: 8px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 
@@ -2330,7 +2333,7 @@ button.git-status:active {
   align-items: center;
   gap: 5px 10px;
   color: var(--quiet);
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .git-commit-meta strong {
@@ -2343,8 +2346,8 @@ button.git-status:active {
   color: #87928a;
   border-radius: 3px;
   background: #090c0a;
-  font-family: inherit;
-  font-size: 7px;
+  font-family: var(--git-mono);
+  font-size: 9px;
 }
 
 .git-commit-meta em {
@@ -2356,8 +2359,8 @@ button.git-status:active {
   display: grid;
   grid-template-columns: 17px minmax(0, 1fr) auto auto;
   align-items: center;
-  padding: 7px 7px 7px 8px;
-  gap: 7px;
+  padding: 9px 9px 9px 10px;
+  gap: 9px;
   color: var(--red);
   border: 1px solid rgb(191 71 62 / 28%);
   border-radius: 6px;
@@ -2371,18 +2374,18 @@ button.git-status:active {
 
 .git-revert-confirm strong {
   color: #e6c0bc;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 650;
 }
 
 .git-revert-confirm span {
   color: #9f8582;
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .git-revert-confirm button {
   display: inline-flex;
-  height: 24px;
+  height: 29px;
   align-items: center;
   padding: 0 7px;
   gap: 4px;
@@ -2390,7 +2393,7 @@ button.git-status:active {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: #171c18;
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .git-revert-confirm button:last-child {
@@ -2407,12 +2410,12 @@ button.git-status:active {
 
 .git-commit-files > header {
   display: flex;
-  height: 30px;
+  height: 36px;
   align-items: center;
   justify-content: space-between;
   padding: 0 12px 0 15px;
   color: var(--quiet);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -2424,7 +2427,7 @@ button.git-status:active {
 
 .git-commit-files > header em {
   color: var(--amber);
-  font-size: 6px;
+  font-size: 8px;
   font-style: normal;
   font-weight: 500;
   letter-spacing: 0;
@@ -2432,19 +2435,19 @@ button.git-status:active {
 
 .git-commit-files > div {
   display: flex;
-  max-height: 88px;
+  max-height: 110px;
   flex-wrap: wrap;
   align-content: flex-start;
   overflow-y: auto;
-  padding: 0 12px 8px;
-  gap: 4px;
+  padding: 0 14px 10px;
+  gap: 6px;
 }
 
 .git-commit-file {
   display: flex;
   min-width: 0;
   max-width: min(310px, 100%);
-  height: 25px;
+  height: 30px;
   align-items: center;
   padding: 0 7px 0 5px;
   gap: 5px;
@@ -2452,7 +2455,7 @@ button.git-status:active {
   border: 1px solid var(--line);
   border-radius: 5px;
   background: #151a16;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .git-commit-file > span:last-child {
@@ -2464,36 +2467,36 @@ button.git-status:active {
 .git-commit-file small {
   margin-right: 4px;
   color: var(--quiet);
-  font-size: 6px;
+  font-size: 9px;
 }
 
 .git-commit-patch-header {
   display: flex;
-  height: 31px;
-  flex: 0 0 31px;
+  height: 37px;
+  flex: 0 0 37px;
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
   color: var(--quiet);
   border-bottom: 1px solid var(--line);
   background: #101411;
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
 
 .git-commit-patch-header code {
   color: #69736c;
-  font-family: inherit;
-  font-size: 7px;
+  font-family: var(--git-mono);
+  font-size: 9px;
   font-weight: 500;
   letter-spacing: 0;
 }
 
 .git-diff-header {
   display: flex;
-  height: 43px;
-  flex: 0 0 43px;
+  height: 49px;
+  flex: 0 0 49px;
   align-items: center;
   justify-content: space-between;
   padding: 0 13px 0 15px;
@@ -2511,7 +2514,7 @@ button.git-status:active {
 .git-diff-header strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2519,7 +2522,7 @@ button.git-status:active {
 
 .git-diff-header > div:first-child span {
   color: var(--quiet);
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .git-diff-header-actions {
@@ -2531,7 +2534,7 @@ button.git-status:active {
 
 .git-file-history-button {
   display: inline-flex;
-  height: 25px;
+  height: 30px;
   align-items: center;
   padding: 0 7px;
   gap: 5px;
@@ -2539,7 +2542,7 @@ button.git-status:active {
   border: 1px solid var(--line);
   border-radius: 5px;
   background: #171c18;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .git-file-history-button:hover {
@@ -2554,24 +2557,24 @@ button.git-status:active {
   flex: 1;
   overflow: auto;
   margin: 0;
-  padding: 8px 0 18px;
+  padding: 10px 0 20px;
   color: #a8b2aa;
-  font-family: inherit;
-  font-size: 9px;
-  line-height: 1.55;
+  font-family: var(--git-mono);
+  font-size: 11px;
+  line-height: 1.6;
   tab-size: 2;
 }
 
 .git-diff code {
   display: table;
   min-width: 100%;
-  font-family: inherit;
+  font-family: var(--git-mono);
 }
 
 .git-diff code > span {
   display: block;
-  min-height: 14px;
-  padding: 0 14px;
+  min-height: 18px;
+  padding: 0 16px;
   white-space: pre;
 }
 
@@ -2602,7 +2605,7 @@ button.git-status:active {
   justify-content: center;
   gap: 8px;
   color: var(--quiet);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .modal-backdrop {
@@ -2910,7 +2913,7 @@ button.git-status:active {
   }
 
   .git-workspace-body {
-    grid-template-columns: 290px minmax(0, 1fr);
+    grid-template-columns: 330px minmax(0, 1fr);
   }
 
   .git-new-branch {
@@ -2955,7 +2958,7 @@ button.git-status:active {
   }
 
   .git-workspace-body {
-    grid-template-columns: 270px minmax(0, 1fr);
+    grid-template-columns: 310px minmax(0, 1fr);
   }
 
   .git-new-branch {
