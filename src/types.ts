@@ -83,6 +83,13 @@ export interface GitCommitDetail extends GitCommit {
   patchTruncated: boolean;
 }
 
+export interface DeveloperTool {
+  id: string;
+  name: string;
+  detail: string;
+  kind: "editor" | "terminal" | "folder" | "remote";
+}
+
 export interface CommitMessageProvider {
   id: string;
   name: string;

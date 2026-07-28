@@ -10,6 +10,7 @@ import {
   Square,
   Star,
   TerminalSquare,
+  Wrench,
 } from "lucide-react";
 import { projectActivity } from "../lib/projectMeta";
 import type { GitStatus, ProjectView } from "../types";
@@ -28,6 +29,7 @@ interface Props {
   onOpenFolder: () => void;
   onOpenTerminal: () => void;
   onGit: () => void;
+  onTools: () => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onDragOver: (event: DragEvent<HTMLElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
@@ -48,6 +50,7 @@ export function ProjectCard({
   onOpenFolder,
   onOpenTerminal,
   onGit,
+  onTools,
   onDragStart,
   onDragOver,
   onDrop,
@@ -126,6 +129,14 @@ export function ProjectCard({
           <span>$</span><code>{project.command}</code>
         </div>
         <div className="utility-actions">
+          <button
+            className="icon-button"
+            onClick={onTools}
+            title="Developer tools"
+            aria-label={`Open developer tools for ${project.name}`}
+          >
+            <Wrench size={14} />
+          </button>
           <button
             className="icon-button"
             onClick={onOpenFolder}

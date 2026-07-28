@@ -1,8 +1,8 @@
 pub mod core;
 
 use core::{
-    CommitMessageProvider, GitCommitDetail, GitHistoryPage, GitWorkspace, Project, ProjectDraft,
-    ProjectView,
+    CommitMessageProvider, DeveloperTool, GitCommitDetail, GitHistoryPage, GitWorkspace, Project,
+    ProjectDraft, ProjectView,
 };
 
 #[tauri::command]
@@ -111,6 +111,16 @@ async fn revert_git_commit(
 }
 
 #[tauri::command]
+async fn get_developer_tools(project_id: String) -> Result<Vec<DeveloperTool>, String> {
+    run_blocking(move || core::developer_tools(&project_id)).await
+}
+
+#[tauri::command]
+async fn open_developer_tool(project_id: String, tool_id: String) -> Result<(), String> {
+    run_blocking(move || core::open_developer_tool(&project_id, &tool_id)).await
+}
+
+#[tauri::command]
 async fn stage_git_files(project_id: String, paths: Vec<String>) -> Result<GitWorkspace, String> {
     run_blocking(move || core::stage_git_paths(&project_id, &paths)).await
 }
@@ -201,6 +211,8 @@ pub fn run() {
             get_git_history,
             get_git_commit_detail,
             revert_git_commit,
+            get_developer_tools,
+            open_developer_tool,
             stage_git_files,
             unstage_git_files,
             create_commit,

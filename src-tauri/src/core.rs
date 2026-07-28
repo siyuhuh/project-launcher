@@ -135,6 +135,24 @@ pub struct GitCommitDetail {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeveloperTool {
+    pub id: String,
+    pub name: String,
+    pub detail: String,
+    pub kind: DeveloperToolKind,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DeveloperToolKind {
+    Editor,
+    Terminal,
+    Folder,
+    Remote,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommitMessageProvider {
     pub id: String,
     pub name: String,
@@ -664,6 +682,71 @@ pub fn revert_git_commit(project_id: &str, commit_hash: &str) -> Result<GitWorks
     read_git_workspace(&project.path)
 }
 
+pub fn developer_tools(project_id: &str) -> Result<Vec<DeveloperTool>, String> {
+    let project = find_project(project_id)?;
+    let mut tools = editor_definitions()
+        .iter()
+        .filter(|editor| editor_is_available(editor))
+        .map(|editor| DeveloperTool {
+            id: editor.id.to_string(),
+            name: editor.name.to_string(),
+            detail: editor.detail.to_string(),
+            kind: DeveloperToolKind::Editor,
+        })
+        .collect::<Vec<_>>();
+
+    tools.push(DeveloperTool {
+        id: "terminal".to_string(),
+        name: if cfg!(target_os = "macos") {
+            "Terminal".to_string()
+        } else {
+            "System terminal".to_string()
+        },
+        detail: "Open at the project root".to_string(),
+        kind: DeveloperToolKind::Terminal,
+    });
+    tools.push(DeveloperTool {
+        id: "folder".to_string(),
+        name: if cfg!(target_os = "macos") {
+            "Finder".to_string()
+        } else {
+            "File manager".to_string()
+        },
+        detail: "Reveal project files".to_string(),
+        kind: DeveloperToolKind::Folder,
+    });
+    if repository_web_url(&project.path).is_some() {
+        tools.push(DeveloperTool {
+            id: "remote".to_string(),
+            name: "Remote repository".to_string(),
+            detail: "Open in your browser".to_string(),
+            kind: DeveloperToolKind::Remote,
+        });
+    }
+
+    Ok(tools)
+}
+
+pub fn open_developer_tool(project_id: &str, tool_id: &str) -> Result<(), String> {
+    let project = find_project(project_id)?;
+    match tool_id {
+        "terminal" => open_project_terminal(project_id),
+        "folder" => open_project_directory(project_id),
+        "remote" => {
+            let url = repository_web_url(&project.path)
+                .ok_or_else(|| "No browser-friendly Git remote is configured".to_string())?;
+            open_path(&url)
+        }
+        editor_id => {
+            let editor = editor_definitions()
+                .iter()
+                .find(|editor| editor.id == editor_id)
+                .ok_or_else(|| "Unknown developer tool".to_string())?;
+            open_editor(editor, &project.path)
+        }
+    }
+}
+
 pub fn stage_git_paths(project_id: &str, paths: &[String]) -> Result<GitWorkspace, String> {
     let project = find_project(project_id)?;
     let paths = validate_git_paths(paths)?;
@@ -703,23 +786,22 @@ pub fn commit_git(project_id: &str, message: &str) -> Result<GitWorkspace, Strin
 pub fn list_commit_message_providers() -> Result<Vec<CommitMessageProvider>, String> {
     let mut providers = Vec::new();
 
-    if let Some(ollama) = resolve_executable("ollama") {
-        if let Ok(output) = Command::new(ollama).arg("list").output()
-            && output.status.success()
+    if let Some(ollama) = resolve_executable("ollama")
+        && let Ok(output) = Command::new(ollama).arg("list").output()
+        && output.status.success()
+    {
+        for model in String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_whitespace().next())
+            .filter(|model| !model.is_empty())
         {
-            for model in String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .skip(1)
-                .filter_map(|line| line.split_whitespace().next())
-                .filter(|model| !model.is_empty())
-            {
-                providers.push(CommitMessageProvider {
-                    id: format!("ollama:{model}"),
-                    name: model.to_string(),
-                    detail: "Ollama · local".to_string(),
-                    local: true,
-                });
-            }
+            providers.push(CommitMessageProvider {
+                id: format!("ollama:{model}"),
+                name: model.to_string(),
+                detail: "Ollama · local".to_string(),
+                local: true,
+            });
         }
     }
 
@@ -1662,6 +1744,178 @@ Staged diff:
     ))
 }
 
+struct EditorDefinition {
+    id: &'static str,
+    name: &'static str,
+    detail: &'static str,
+    executables: &'static [&'static str],
+    macos_app: &'static str,
+}
+
+fn editor_definitions() -> &'static [EditorDefinition] {
+    &[
+        EditorDefinition {
+            id: "cursor",
+            name: "Cursor",
+            detail: "AI code editor",
+            executables: &["cursor"],
+            macos_app: "Cursor",
+        },
+        EditorDefinition {
+            id: "vscode",
+            name: "Visual Studio Code",
+            detail: "Code editor",
+            executables: &["code"],
+            macos_app: "Visual Studio Code",
+        },
+        EditorDefinition {
+            id: "zed",
+            name: "Zed",
+            detail: "Native code editor",
+            executables: &["zed"],
+            macos_app: "Zed",
+        },
+        EditorDefinition {
+            id: "nova",
+            name: "Nova",
+            detail: "Native Mac editor",
+            executables: &["nova"],
+            macos_app: "Nova",
+        },
+        EditorDefinition {
+            id: "sublime",
+            name: "Sublime Text",
+            detail: "Text editor",
+            executables: &["subl"],
+            macos_app: "Sublime Text",
+        },
+        EditorDefinition {
+            id: "idea",
+            name: "IntelliJ IDEA",
+            detail: "JetBrains IDE",
+            executables: &["idea"],
+            macos_app: "IntelliJ IDEA",
+        },
+        EditorDefinition {
+            id: "webstorm",
+            name: "WebStorm",
+            detail: "JavaScript and TypeScript IDE",
+            executables: &["webstorm"],
+            macos_app: "WebStorm",
+        },
+        EditorDefinition {
+            id: "pycharm",
+            name: "PyCharm",
+            detail: "Python IDE",
+            executables: &["pycharm"],
+            macos_app: "PyCharm",
+        },
+        EditorDefinition {
+            id: "rustrover",
+            name: "RustRover",
+            detail: "Rust IDE",
+            executables: &["rustrover"],
+            macos_app: "RustRover",
+        },
+    ]
+}
+
+fn editor_is_available(editor: &EditorDefinition) -> bool {
+    macos_app_is_available(editor.macos_app)
+        || editor
+            .executables
+            .iter()
+            .any(|executable| resolve_executable(executable).is_some())
+}
+
+fn open_editor(editor: &EditorDefinition, project_path: &str) -> Result<(), String> {
+    if let Some(executable) = editor
+        .executables
+        .iter()
+        .find_map(|executable| resolve_executable(executable))
+    {
+        Command::new(executable)
+            .arg(project_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("Could not open {}: {error}", editor.name))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .args(["-a", editor.macos_app, project_path])
+            .status()
+            .map_err(display_error)?;
+        if status.success() {
+            return Ok(());
+        }
+    }
+
+    Err(format!("{} is no longer available", editor.name))
+}
+
+fn macos_app_is_available(app_name: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let bundle_name = format!("{app_name}.app");
+        if Path::new("/Applications").join(&bundle_name).is_dir()
+            || Path::new("/System/Applications")
+                .join(&bundle_name)
+                .is_dir()
+        {
+            return true;
+        }
+        dirs::home_dir().is_some_and(|home| home.join("Applications").join(bundle_name).is_dir())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app_name;
+        false
+    }
+}
+
+fn repository_web_url(path: &str) -> Option<String> {
+    let output = run_git(path, &["remote", "get-url", "origin"]).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    normalize_git_remote(String::from_utf8_lossy(&output.stdout).trim())
+}
+
+fn normalize_git_remote(remote: &str) -> Option<String> {
+    let remote = remote.trim();
+    let url = if remote.starts_with("https://") || remote.starts_with("http://") {
+        remote.to_string()
+    } else if let Some(value) = remote.strip_prefix("ssh://") {
+        let host_and_path = value
+            .split_once('@')
+            .map(|(_, host_and_path)| host_and_path)
+            .unwrap_or(value);
+        let (host, path) = host_and_path.split_once('/')?;
+        if host.is_empty() || path.is_empty() {
+            return None;
+        }
+        format!("https://{host}/{path}")
+    } else {
+        let (user_and_host, path) = remote.split_once(':')?;
+        let (_, host) = user_and_host.rsplit_once('@')?;
+        if host.is_empty() || path.is_empty() || host.contains('/') {
+            return None;
+        }
+        format!("https://{host}/{path}")
+    };
+    Some(
+        url.trim_end_matches('/')
+            .trim_end_matches(".git")
+            .to_string(),
+    )
+}
+
 fn resolve_executable(name: &str) -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(home) = dirs::home_dir() {
@@ -1731,12 +1985,11 @@ fn run_ai_command(mut command: Command, stdin: Option<&str>) -> Result<Output, S
 
     if let Some(contents) = stdin
         && let Some(mut input) = child.stdin.take()
+        && let Err(error) = input.write_all(contents.as_bytes())
     {
-        if let Err(error) = input.write_all(contents.as_bytes()) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("Could not send context to AI provider: {error}"));
-        }
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("Could not send context to AI provider: {error}"));
     }
 
     let started_at = Instant::now();
@@ -2018,9 +2271,9 @@ fn display_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        commit_message_prompt, parse_git_file_record, read_git_commit_detail, read_git_history,
-        read_git_workspace, revert_git_commit_in_path, run_git_checked, sanitize_commit_message,
-        validate_git_path,
+        commit_message_prompt, normalize_git_remote, parse_git_file_record, read_git_commit_detail,
+        read_git_history, read_git_workspace, revert_git_commit_in_path, run_git_checked,
+        sanitize_commit_message, validate_git_path,
     };
     use std::fs;
     use uuid::Uuid;
@@ -2050,6 +2303,23 @@ mod tests {
         assert!(validate_git_path("src/App.tsx").is_ok());
         assert!(validate_git_path("../secrets.txt").is_err());
         assert!(validate_git_path("/tmp/secrets.txt").is_err());
+    }
+
+    #[test]
+    fn converts_common_git_remotes_to_browser_urls() {
+        assert_eq!(
+            normalize_git_remote("git@github.com:siyuhuh/project-launcher.git").as_deref(),
+            Some("https://github.com/siyuhuh/project-launcher")
+        );
+        assert_eq!(
+            normalize_git_remote("ssh://git@gitlab.com/team/runbox.git").as_deref(),
+            Some("https://gitlab.com/team/runbox")
+        );
+        assert_eq!(
+            normalize_git_remote("https://example.com/team/runbox.git").as_deref(),
+            Some("https://example.com/team/runbox")
+        );
+        assert!(normalize_git_remote("../runbox.git").is_none());
     }
 
     #[test]

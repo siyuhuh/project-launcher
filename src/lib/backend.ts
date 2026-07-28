@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   CommitMessageProvider,
+  DeveloperTool,
   GitCommitDetail,
   GitHistoryPage,
   GitWorkspace,
@@ -95,6 +96,14 @@ export function revertGitCommit(
   commitHash: string,
 ): Promise<GitWorkspace> {
   return invoke("revert_git_commit", { projectId, commitHash });
+}
+
+export function getDeveloperTools(projectId: string): Promise<DeveloperTool[]> {
+  return invoke("get_developer_tools", { projectId });
+}
+
+export function openDeveloperTool(projectId: string, toolId: string): Promise<void> {
+  return invoke("open_developer_tool", { projectId, toolId });
 }
 
 export function stageGitFiles(projectId: string, paths: string[]): Promise<GitWorkspace> {

@@ -12,6 +12,7 @@ Runbox remembers each project directory and start command, then gives you one sh
 - switch between comfortable cards, compact cards, and a Notion-style table;
 - inspect each project's Git branch, clean/changed state, and ahead/behind counts;
 - review diffs and commit history, stage files, commit, switch branches, and sync a repository without leaving Runbox;
+- open a project in a detected editor, Terminal, Finder, or its remote repository;
 - draft commit messages with a local Ollama model, Codex CLI, or Cursor Agent;
 - mirror Finder tag colors from the project folders on macOS;
 - use the same entries from Terminal with `p my-project`;
@@ -183,6 +184,16 @@ Only staged changes, their summary, the branch name, and recent commit subjects 
 generation context. Codex and Cursor are cloud providers, so their selected context is sent to that
 provider; choose Ollama when repository content must remain local. Runbox does not store model
 credentials or generated diff context.
+
+## Developer tools
+
+Click the wrench on any project to open its developer tools. Runbox detects Cursor, Visual Studio
+Code, Zed, Nova, Sublime Text, and common JetBrains IDEs from their command-line launcher or macOS
+application bundle. The same panel also opens Terminal and Finder at the project root, plus a
+browser-friendly `origin` remote when one is configured.
+
+These shortcuts only open the selected tool. Runbox does not install editors, execute editor tasks,
+or send project contents anywhere.
 
 ## Project views
 

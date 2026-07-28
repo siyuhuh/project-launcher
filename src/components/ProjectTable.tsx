@@ -9,6 +9,7 @@ import {
   Square,
   Star,
   TerminalSquare,
+  Wrench,
 } from "lucide-react";
 import { projectActivity } from "../lib/projectMeta";
 import type { ProjectView } from "../types";
@@ -28,6 +29,7 @@ interface Props {
   onOpenFolder: (project: ProjectView) => void;
   onOpenTerminal: (project: ProjectView) => void;
   onGit: (project: ProjectView) => void;
+  onTools: (project: ProjectView) => void;
   onDragStart: (event: DragEvent<HTMLElement>, projectId: string) => void;
   onDragOver: (event: DragEvent<HTMLElement>, projectId: string) => void;
   onDrop: (event: DragEvent<HTMLElement>, projectId: string) => void;
@@ -48,6 +50,7 @@ export function ProjectTable({
   onOpenFolder,
   onOpenTerminal,
   onGit,
+  onTools,
   onDragStart,
   onDragOver,
   onDrop,
@@ -147,6 +150,14 @@ export function ProjectTable({
                         <Play size={11} fill="currentColor" />
                       )}
                       {pending ? "Working" : running ? "Stop" : "Run"}
+                    </button>
+                    <button
+                      className="icon-button"
+                      onClick={() => onTools(project)}
+                      title="Developer tools"
+                      aria-label={`Open developer tools for ${project.name}`}
+                    >
+                      <Wrench size={13} />
                     </button>
                     <button
                       className="icon-button"

@@ -961,7 +961,7 @@ button.git-status:active {
 }
 
 .project-table th:nth-child(5) {
-  width: 185px;
+  width: 215px;
 }
 
 .project-table tr {
@@ -1160,6 +1160,211 @@ button.git-status:active {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.7;
+}
+
+.tools-panel-backdrop {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  padding: 44px 18px 18px;
+  background: rgb(3 5 4 / 78%);
+  backdrop-filter: blur(7px);
+  place-items: center;
+}
+
+.tools-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(610px, 100%);
+  max-height: min(680px, 100%);
+  overflow: hidden;
+  border: 1px solid #303832;
+  border-radius: 11px;
+  background: #0c0f0d;
+  box-shadow: 0 32px 100px rgb(0 0 0 / 62%);
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+@starting-style {
+  .tools-panel {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.tools-panel-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 16px 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #101411;
+}
+
+.tools-panel-header > div {
+  min-width: 0;
+}
+
+.tools-panel-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.tools-panel-header h2 {
+  margin: 5px 0 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.tools-panel-header p {
+  overflow: hidden;
+  max-width: 480px;
+  margin: 4px 0 0;
+  color: var(--quiet);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tools-panel-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 17px;
+  background: #0c0f0d;
+}
+
+.tools-section + .tools-section {
+  margin-top: 20px;
+}
+
+.tools-section > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 2px 8px;
+}
+
+.tools-section > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.tools-section h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.tools-section header span,
+.tools-section header strong {
+  color: var(--quiet);
+  font-size: 7px;
+  font-weight: 550;
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tool-card {
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr) 16px;
+  min-width: 0;
+  min-height: 55px;
+  align-items: center;
+  padding: 8px 9px;
+  gap: 8px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #111512;
+  text-align: left;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.tool-card:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.tool-card:disabled {
+  cursor: wait;
+  opacity: 0.48;
+}
+
+.tool-card-icon {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green), transparent 80%);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--green), transparent 94%);
+  place-items: center;
+}
+
+.tool-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.tool-card-copy strong,
+.tool-card-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-card-copy strong {
+  color: inherit;
+  font-size: 9px;
+  font-weight: 630;
+}
+
+.tool-card-copy small {
+  color: var(--quiet);
+  font-size: 7px;
+}
+
+.tool-card > svg {
+  color: var(--quiet);
+}
+
+.tools-loading-state {
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--quiet);
+  font-size: 9px;
+}
+
+.tools-empty-state {
+  margin: 0;
+  padding: 13px 14px;
+  color: var(--quiet);
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: #0a0d0b;
+  font-size: 8px;
+  line-height: 1.55;
 }
 
 .git-panel-backdrop {
@@ -2691,6 +2896,12 @@ button.git-status:active {
     border-color: #353d37;
     background: var(--raised);
   }
+
+  .tool-card:hover:not(:disabled) {
+    color: var(--text);
+    border-color: #354038;
+    background: #171c18;
+  }
 }
 
 @media (max-width: 1050px) {
@@ -2739,12 +2950,20 @@ button.git-status:active {
     padding: 40px 8px 8px;
   }
 
+  .tools-panel-backdrop {
+    padding: 40px 8px 8px;
+  }
+
   .git-workspace-body {
     grid-template-columns: 270px minmax(0, 1fr);
   }
 
   .git-new-branch {
     display: none;
+  }
+
+  .tools-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

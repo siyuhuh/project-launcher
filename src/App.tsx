@@ -25,6 +25,7 @@ import {
   Terminal,
   X,
 } from "lucide-react";
+import { DeveloperToolsPanel } from "./components/DeveloperToolsPanel";
 import { GitPanel } from "./components/GitPanel";
 import { LogPanel } from "./components/LogPanel";
 import { ProjectCard } from "./components/ProjectCard";
@@ -93,6 +94,7 @@ export default function App() {
   const [modalProject, setModalProject] = useState<ProjectForm | null>(null);
   const [logProjectId, setLogProjectId] = useState<string | null>(null);
   const [gitProjectId, setGitProjectId] = useState<string | null>(null);
+  const [toolsProjectId, setToolsProjectId] = useState<string | null>(null);
   const [logContents, setLogContents] = useState("");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
@@ -165,6 +167,7 @@ export default function App() {
         setModalProject(null);
         setLogProjectId(null);
         setGitProjectId(null);
+        setToolsProjectId(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -207,6 +210,7 @@ export default function App() {
 
   const logProject = projects.find((project) => project.id === logProjectId) ?? null;
   const gitProject = projects.find((project) => project.id === gitProjectId) ?? null;
+  const toolsProject = projects.find((project) => project.id === toolsProjectId) ?? null;
   const canReorder =
     sortMode === "manual" && filter === "all" && tagFilter === "all" && query.trim() === "";
 
@@ -518,6 +522,7 @@ export default function App() {
                 onLogs={(project) => setLogProjectId(project.id)}
                 onEdit={(project) => setModalProject(project)}
                 onGit={(project) => setGitProjectId(project.id)}
+                onTools={(project) => setToolsProjectId(project.id)}
                 onOpenFolder={(project) =>
                   void openProjectFolder(project.id).catch((error) =>
                     showToast(errorMessage(error), "error"),
@@ -549,6 +554,7 @@ export default function App() {
                     onLogs={() => setLogProjectId(project.id)}
                     onEdit={() => setModalProject(project)}
                     onGit={() => setGitProjectId(project.id)}
+                    onTools={() => setToolsProjectId(project.id)}
                     onOpenFolder={() => void openProjectFolder(project.id).catch((error) => showToast(errorMessage(error), "error"))}
                     onOpenTerminal={() => void openProjectTerminal(project.id).catch((error) => showToast(errorMessage(error), "error"))}
                     onDragStart={(event) => handleDragStart(event, project.id)}
@@ -586,6 +592,13 @@ export default function App() {
           project={gitProject}
           onClose={() => setGitProjectId(null)}
           onProjectRefresh={() => void refreshProjects()}
+          onNotify={showToast}
+        />
+      ) : null}
+      {toolsProject ? (
+        <DeveloperToolsPanel
+          project={toolsProject}
+          onClose={() => setToolsProjectId(null)}
           onNotify={showToast}
         />
       ) : null}
