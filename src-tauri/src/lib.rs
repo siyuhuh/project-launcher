@@ -102,6 +102,11 @@ async fn get_commit_message_providers() -> Result<Vec<CommitMessageProvider>, St
 }
 
 #[tauri::command]
+fn open_local_ai_setup() -> Result<(), String> {
+    core::open_local_ai_setup()
+}
+
+#[tauri::command]
 async fn generate_commit_message(
     project_id: String,
     provider_id: String,
@@ -168,6 +173,7 @@ pub fn run() {
             unstage_git_files,
             create_commit,
             get_commit_message_providers,
+            open_local_ai_setup,
             generate_commit_message,
             create_branch,
             switch_branch,

@@ -680,6 +680,10 @@ pub fn list_commit_message_providers() -> Result<Vec<CommitMessageProvider>, Str
     Ok(providers)
 }
 
+pub fn open_local_ai_setup() -> Result<(), String> {
+    open_path("https://ollama.com/download")
+}
+
 pub fn generate_commit_message(project_id: &str, provider_id: &str) -> Result<String, String> {
     let project = find_project(project_id)?;
     let prompt = commit_message_prompt(&project.path)?;

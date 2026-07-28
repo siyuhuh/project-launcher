@@ -153,12 +153,26 @@ Stage the files you want to commit, choose a provider in the commit box, and cli
 Runbox fills the commit textarea so you can review or edit the result before committing. It never
 commits automatically.
 
+**A local model is optional.** Runbox works with Codex, Cursor, or ordinary manual commit messages
+without Ollama. If no local model is detected, the commit box shows a small setup prompt that can be
+dismissed with **Not now**. Runbox never installs Ollama or downloads a model automatically.
+
 Providers are discovered from the login shell:
 
 - **Ollama** — every model shown by `ollama list` is available. The staged diff stays on the Mac.
 - **Codex** — uses `codex exec` with an ephemeral session and a read-only sandbox. It reuses the
   existing Codex CLI login.
 - **Cursor** — uses `cursor-agent` in read-only ask mode and reuses the existing Cursor login.
+
+To opt into local generation, install [Ollama](https://ollama.com/download), then add a model:
+
+```bash
+ollama pull qwen3:4b
+```
+
+`qwen3:4b` is the lightweight default recommendation (about 2.5 GB). `qwen3:8b` produces stronger
+results on capable machines but requires about 5.2 GB. Any model returned by `ollama list` appears
+automatically in Runbox.
 
 Only staged changes, their summary, the branch name, and recent commit subjects are included in the
 generation context. Codex and Cursor are cloud providers, so their selected context is sent to that

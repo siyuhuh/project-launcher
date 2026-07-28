@@ -3,6 +3,8 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Check,
+  Cpu,
+  ExternalLink,
   GitBranch,
   GitCommitHorizontal,
   LoaderCircle,
@@ -20,6 +22,7 @@ import {
   getCommitMessageProviders,
   getGitDiff,
   getGitWorkspace,
+  openLocalAiSetup,
   pullRepository,
   pushRepository,
   stageGitFiles,
@@ -35,6 +38,7 @@ import type {
 
 type Selection = { path: string; staged: boolean };
 const COMMIT_PROVIDER_STORAGE_KEY = "runbox.commitProvider";
+const LOCAL_AI_PROMPT_STORAGE_KEY = "runbox.localAiPromptDismissed";
 
 interface Props {
   project: ProjectView;
@@ -59,6 +63,9 @@ export function GitPanel({
   const [commitProviders, setCommitProviders] = useState<CommitMessageProvider[]>([]);
   const [commitProviderId, setCommitProviderId] = useState("");
   const [providersLoading, setProvidersLoading] = useState(true);
+  const [localSetupExpanded, setLocalSetupExpanded] = useState(
+    () => window.localStorage.getItem(LOCAL_AI_PROMPT_STORAGE_KEY) !== "true",
+  );
   const [branchDraft, setBranchDraft] = useState("");
   const busyRef = useRef(false);
 
@@ -167,6 +174,14 @@ export function GitPanel({
     () => workspace?.files.filter((file) => file.unstaged) ?? [],
     [workspace],
   );
+  const hasLocalProvider = useMemo(
+    () => commitProviders.some((provider) => provider.local),
+    [commitProviders],
+  );
+  const selectedCommitProvider = useMemo(
+    () => commitProviders.find((provider) => provider.id === commitProviderId),
+    [commitProviderId, commitProviders],
+  );
 
   async function runOperation(
     label: string,
@@ -203,12 +218,19 @@ export function GitPanel({
     try {
       const message = await generateCommitMessage(project.id, commitProviderId);
       setCommitMessage(message);
-      const provider = commitProviders.find((item) => item.id === commitProviderId);
-      onNotify(`Drafted with ${provider?.name ?? "AI"}`, "success");
+      onNotify(`Drafted with ${selectedCommitProvider?.name ?? "AI"}`, "success");
     } catch (error) {
       onNotify(errorMessage(error), "error");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function handleOpenLocalAiSetup() {
+    try {
+      await openLocalAiSetup();
+    } catch (error) {
+      onNotify(errorMessage(error), "error");
     }
   }
 
@@ -407,9 +429,11 @@ export function GitPanel({
                   <div
                     className="git-ai-row"
                     title={
-                      commitProviders.find((provider) => provider.id === commitProviderId)?.local
+                      selectedCommitProvider?.local
                         ? "Only the staged diff is read. It stays on this Mac."
-                        : "Only the staged diff is sent to the selected provider."
+                        : selectedCommitProvider
+                          ? "Only the staged diff is sent to the selected provider."
+                          : "AI is optional. You can still write and commit a message manually."
                     }
                   >
                     <label className="git-provider-select">
@@ -453,6 +477,45 @@ export function GitPanel({
                       Generate
                     </button>
                   </div>
+                  {!providersLoading && !hasLocalProvider ? (
+                    localSetupExpanded ? (
+                      <div className="git-local-ai-prompt">
+                        <Cpu size={14} />
+                        <div className="git-local-ai-copy">
+                          <strong>Run locally? Optional.</strong>
+                          <span>
+                            {commitProviders.length > 0
+                              ? "Keep using a cloud provider, or set up Ollama."
+                              : "Manual commits still work, or set up Ollama."}
+                          </span>
+                          <code>ollama pull qwen3:4b</code>
+                        </div>
+                        <div className="git-local-ai-actions">
+                          <button
+                            onClick={() => {
+                              setLocalSetupExpanded(false);
+                              window.localStorage.setItem(
+                                LOCAL_AI_PROMPT_STORAGE_KEY,
+                                "true",
+                              );
+                            }}
+                          >
+                            Not now
+                          </button>
+                          <button onClick={() => void handleOpenLocalAiSetup()}>
+                            Setup guide <ExternalLink size={10} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="git-local-ai-link"
+                        onClick={() => setLocalSetupExpanded(true)}
+                      >
+                        <Cpu size={10} /> Local AI is optional
+                      </button>
+                    )
+                  ) : null}
                   <textarea
                     value={commitMessage}
                     onChange={(event) => setCommitMessage(event.target.value)}

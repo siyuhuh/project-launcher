@@ -88,6 +88,10 @@ export function getCommitMessageProviders(): Promise<CommitMessageProvider[]> {
   return invoke("get_commit_message_providers");
 }
 
+export function openLocalAiSetup(): Promise<void> {
+  return invoke("open_local_ai_setup");
+}
+
 export function generateCommitMessage(
   projectId: string,
   providerId: string,

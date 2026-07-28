@@ -1641,8 +1641,100 @@ button.git-status:active {
 }
 
 .git-generate-button:active:not(:disabled),
-.git-commit-button:active:not(:disabled) {
+.git-commit-button:active:not(:disabled),
+.git-local-ai-actions button:active,
+.git-local-ai-link:active {
   transform: scale(0.97);
+}
+
+.git-local-ai-prompt {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  padding: 8px;
+  gap: 3px 6px;
+  color: var(--quiet);
+  border: 1px solid color-mix(in srgb, var(--green), transparent 82%);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--green), transparent 96%);
+}
+
+.git-local-ai-prompt > svg {
+  margin-top: 1px;
+  color: var(--green);
+}
+
+.git-local-ai-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.git-local-ai-copy strong {
+  color: var(--text);
+  font-size: 8px;
+}
+
+.git-local-ai-copy span {
+  color: var(--quiet);
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.git-local-ai-copy code {
+  width: max-content;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 2px 4px;
+  overflow: hidden;
+  color: var(--muted);
+  border-radius: 3px;
+  background: #090c0a;
+  font-family: inherit;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-local-ai-actions {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.git-local-ai-actions button,
+.git-local-ai-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--quiet);
+  border: 0;
+  background: transparent;
+  font-size: 7px;
+}
+
+.git-local-ai-actions button:last-child {
+  height: 22px;
+  padding: 0 6px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #171c18;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .git-local-ai-actions button:hover,
+  .git-local-ai-link:hover {
+    color: var(--green);
+  }
+}
+
+.git-local-ai-link {
+  width: max-content;
+  padding: 0;
 }
 
 .git-commit-button {
