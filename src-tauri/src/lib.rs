@@ -1,6 +1,9 @@
 pub mod core;
 
-use core::{CommitMessageProvider, GitWorkspace, Project, ProjectDraft, ProjectView};
+use core::{
+    CommitMessageProvider, GitCommitDetail, GitHistoryPage, GitWorkspace, Project, ProjectDraft,
+    ProjectView,
+};
 
 #[tauri::command]
 fn get_projects() -> Result<Vec<ProjectView>, String> {
@@ -79,6 +82,32 @@ async fn get_git_diff(
     staged: bool,
 ) -> Result<String, String> {
     run_blocking(move || core::git_diff(&project_id, &file_path, staged)).await
+}
+
+#[tauri::command]
+async fn get_git_history(
+    project_id: String,
+    offset: usize,
+    limit: usize,
+    file_path: Option<String>,
+) -> Result<GitHistoryPage, String> {
+    run_blocking(move || core::git_history(&project_id, offset, limit, file_path.as_deref())).await
+}
+
+#[tauri::command]
+async fn get_git_commit_detail(
+    project_id: String,
+    commit_hash: String,
+) -> Result<GitCommitDetail, String> {
+    run_blocking(move || core::git_commit_detail(&project_id, &commit_hash)).await
+}
+
+#[tauri::command]
+async fn revert_git_commit(
+    project_id: String,
+    commit_hash: String,
+) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::revert_git_commit(&project_id, &commit_hash)).await
 }
 
 #[tauri::command]
@@ -169,6 +198,9 @@ pub fn run() {
             show_in_terminal,
             get_git_workspace,
             get_git_diff,
+            get_git_history,
+            get_git_commit_detail,
+            revert_git_commit,
             stage_git_files,
             unstage_git_files,
             create_commit,

@@ -19,6 +19,7 @@ const LOG_READ_LIMIT: u64 = 256 * 1024;
 const FINDER_TAG_CACHE_TTL: Duration = Duration::from_secs(15);
 const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(3);
 const COMMIT_DIFF_LIMIT: usize = 96 * 1024;
+const HISTORY_PATCH_LIMIT: usize = 768 * 1024;
 const AI_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Default)]
@@ -89,6 +90,47 @@ pub struct GitFileChange {
     pub status: String,
     pub staged: bool,
     pub unstaged: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub subject: String,
+    pub author_name: String,
+    pub author_email: String,
+    pub authored_at: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHistoryPage {
+    pub commits: Vec<GitCommit>,
+    pub offset: usize,
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitFile {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitDetail {
+    #[serde(flatten)]
+    pub commit: GitCommit,
+    pub body: String,
+    pub committed_at: String,
+    pub files: Vec<GitCommitFile>,
+    pub patch: String,
+    pub patch_truncated: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -600,6 +642,28 @@ pub fn git_diff(project_id: &str, file_path: &str, staged: bool) -> Result<Strin
     Ok(contents)
 }
 
+pub fn git_history(
+    project_id: &str,
+    offset: usize,
+    limit: usize,
+    file_path: Option<&str>,
+) -> Result<GitHistoryPage, String> {
+    let project = find_project(project_id)?;
+    read_git_history(&project.path, offset, limit, file_path)
+}
+
+pub fn git_commit_detail(project_id: &str, commit_hash: &str) -> Result<GitCommitDetail, String> {
+    let project = find_project(project_id)?;
+    read_git_commit_detail(&project.path, commit_hash)
+}
+
+pub fn revert_git_commit(project_id: &str, commit_hash: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    revert_git_commit_in_path(&project.path, commit_hash)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
 pub fn stage_git_paths(project_id: &str, paths: &[String]) -> Result<GitWorkspace, String> {
     let project = find_project(project_id)?;
     let paths = validate_git_paths(paths)?;
@@ -1078,6 +1142,267 @@ fn invalidate_git_status(path: &str) {
         cache.entries.remove(path);
         cache.pending.remove(path);
     }
+}
+
+fn read_git_history(
+    path: &str,
+    offset: usize,
+    limit: usize,
+    file_path: Option<&str>,
+) -> Result<GitHistoryPage, String> {
+    if let Some(file_path) = file_path {
+        validate_git_path(file_path)?;
+    }
+
+    let limit = limit.clamp(1, 100);
+    let max_count = format!("--max-count={}", limit + 1);
+    let skip = format!("--skip={offset}");
+    let mut args = vec![
+        "log".to_string(),
+        max_count,
+        skip,
+        "--date=iso-strict".to_string(),
+        "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%P%x1f%D%x1f%s%x1e".to_string(),
+    ];
+    if let Some(file_path) = file_path {
+        args.push("--follow".to_string());
+        args.push("--".to_string());
+        args.push(file_path.to_string());
+    }
+    let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let output = run_git(path, &args)?;
+    if !output.status.success() {
+        let head = run_git(path, &["rev-parse", "--verify", "HEAD"])?;
+        if !head.status.success() {
+            return Ok(GitHistoryPage {
+                commits: Vec::new(),
+                offset,
+                has_more: false,
+            });
+        }
+        return Err(git_error(&output));
+    }
+
+    let mut commits = parse_git_history_output(&String::from_utf8_lossy(&output.stdout));
+    let has_more = commits.len() > limit;
+    commits.truncate(limit);
+    Ok(GitHistoryPage {
+        commits,
+        offset,
+        has_more,
+    })
+}
+
+fn parse_git_history_output(output: &str) -> Vec<GitCommit> {
+    output
+        .split('\u{1e}')
+        .filter_map(|record| {
+            let record = record.trim_matches(['\r', '\n']);
+            if record.is_empty() {
+                return None;
+            }
+            let fields = record.splitn(8, '\u{1f}').collect::<Vec<_>>();
+            if fields.len() != 8 {
+                return None;
+            }
+            Some(GitCommit {
+                hash: fields[0].to_string(),
+                short_hash: fields[1].to_string(),
+                author_name: fields[2].to_string(),
+                author_email: fields[3].to_string(),
+                authored_at: fields[4].to_string(),
+                parents: split_git_values(fields[5], ' '),
+                refs: split_git_values(fields[6], ','),
+                subject: fields[7].to_string(),
+            })
+        })
+        .collect()
+}
+
+fn read_git_commit_detail(path: &str, commit_hash: &str) -> Result<GitCommitDetail, String> {
+    let commit_hash = resolve_commit_hash(path, commit_hash)?;
+    let output = run_git_checked(
+        path,
+        &[
+            "show",
+            "-s",
+            "--date=iso-strict",
+            "--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%cI%x00%P%x00%D%x00%s%x00%b",
+            &commit_hash,
+        ],
+    )?;
+    let fields = output
+        .stdout
+        .splitn(10, |byte| *byte == 0)
+        .collect::<Vec<_>>();
+    if fields.len() != 10 {
+        return Err("Could not parse the selected commit".to_string());
+    }
+    let value = |index: usize| String::from_utf8_lossy(fields[index]).trim().to_string();
+
+    let files_output = run_git_checked(
+        path,
+        &[
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            "-M",
+            "-z",
+            &commit_hash,
+        ],
+    )?;
+    let files = parse_git_commit_files(&files_output.stdout);
+
+    let patch_output = run_git_checked(
+        path,
+        &[
+            "show",
+            "--format=",
+            "--no-ext-diff",
+            "--color=never",
+            "--find-renames",
+            "--unified=3",
+            &commit_hash,
+            "--",
+        ],
+    )?;
+    let mut patch = String::from_utf8_lossy(&patch_output.stdout).to_string();
+    let patch_truncated = patch.len() > HISTORY_PATCH_LIMIT;
+    if patch_truncated {
+        truncate_utf8(&mut patch, HISTORY_PATCH_LIMIT);
+        patch.push_str("\n\n… commit patch truncated by Runbox …\n");
+    }
+
+    Ok(GitCommitDetail {
+        commit: GitCommit {
+            hash: value(0),
+            short_hash: value(1),
+            author_name: value(2),
+            author_email: value(3),
+            authored_at: value(4),
+            parents: split_git_values(&value(6), ' '),
+            refs: split_git_values(&value(7), ','),
+            subject: value(8),
+        },
+        committed_at: value(5),
+        body: value(9),
+        files,
+        patch,
+        patch_truncated,
+    })
+}
+
+fn parse_git_commit_files(output: &[u8]) -> Vec<GitCommitFile> {
+    let records = output
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty())
+        .collect::<Vec<_>>();
+    let mut files = Vec::new();
+    let mut index = 0;
+    while index + 1 < records.len() {
+        let raw_status = String::from_utf8_lossy(records[index]);
+        let status = raw_status.chars().next().unwrap_or('M').to_string();
+        index += 1;
+        if matches!(status.as_str(), "R" | "C") && index + 1 < records.len() {
+            let previous_path = String::from_utf8_lossy(records[index]).to_string();
+            let path = String::from_utf8_lossy(records[index + 1]).to_string();
+            files.push(GitCommitFile {
+                path,
+                previous_path: Some(previous_path),
+                status,
+            });
+            index += 2;
+        } else {
+            files.push(GitCommitFile {
+                path: String::from_utf8_lossy(records[index]).to_string(),
+                previous_path: None,
+                status,
+            });
+            index += 1;
+        }
+    }
+    files
+}
+
+fn revert_git_commit_in_path(path: &str, commit_hash: &str) -> Result<(), String> {
+    let workspace = read_git_workspace(path)?;
+    if !workspace.files.is_empty() {
+        return Err(
+            "Revert requires a clean working tree. Commit or stash local changes first."
+                .to_string(),
+        );
+    }
+
+    let commit_hash = resolve_commit_hash(path, commit_hash)?;
+    let parents_output = run_git_checked(path, &["show", "-s", "--format=%P", &commit_hash])?;
+    if String::from_utf8_lossy(&parents_output.stdout)
+        .split_whitespace()
+        .count()
+        > 1
+    {
+        return Err(
+            "Runbox does not revert merge commits because choosing a mainline parent is ambiguous."
+                .to_string(),
+        );
+    }
+
+    let output = run_git(path, &["revert", "--no-edit", &commit_hash])?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let revert_error = git_error(&output);
+    let revert_in_progress = run_git(path, &["rev-parse", "--verify", "REVERT_HEAD"])?
+        .status
+        .success();
+    if !revert_in_progress {
+        return Err(format!("Revert was not applied. {revert_error}"));
+    }
+    let abort = run_git(path, &["revert", "--abort"])?;
+    if abort.status.success() {
+        Err(format!("Revert was not applied. {revert_error}"))
+    } else {
+        Err(format!(
+            "Revert failed, and Git could not automatically abort it. {revert_error}. {}",
+            git_error(&abort)
+        ))
+    }
+}
+
+fn resolve_commit_hash(path: &str, commit_hash: &str) -> Result<String, String> {
+    let commit_hash = commit_hash.trim();
+    if !(7..=64).contains(&commit_hash.len())
+        || !commit_hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Invalid commit identifier".to_string());
+    }
+    let commitish = format!("{commit_hash}^{{commit}}");
+    let output = run_git_checked(path, &["rev-parse", "--verify", &commitish])?;
+    let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if resolved.is_empty() {
+        Err("Commit was not found".to_string())
+    } else {
+        Ok(resolved)
+    }
+}
+
+fn split_git_values(value: &str, separator: char) -> Vec<String> {
+    value
+        .split(separator)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn truncate_utf8(value: &mut String, limit: usize) {
+    let mut end = limit.min(value.len());
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value.truncate(end);
 }
 
 fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
@@ -1693,8 +2018,9 @@ fn display_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        commit_message_prompt, parse_git_file_record, read_git_workspace, run_git_checked,
-        sanitize_commit_message, validate_git_path,
+        commit_message_prompt, parse_git_file_record, read_git_commit_detail, read_git_history,
+        read_git_workspace, revert_git_commit_in_path, run_git_checked, sanitize_commit_message,
+        validate_git_path,
     };
     use std::fs;
     use uuid::Uuid;
@@ -1782,6 +2108,101 @@ mod tests {
         let prompt = commit_message_prompt(&path).expect("commit prompt");
         assert!(prompt.contains("+second"));
         assert!(!prompt.contains("+third"));
+
+        fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
+
+    #[test]
+    fn reads_paginated_file_history_and_reverts_with_a_new_commit() {
+        let directory =
+            std::env::temp_dir().join(format!("runbox-history-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("temporary repository");
+        let path = directory.to_string_lossy();
+
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(directory.join("notes.txt"), "first\n").expect("initial file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+
+        fs::write(directory.join("notes.txt"), "first\nsecond\n").expect("modified file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage change");
+        run_git_checked(&path, &["commit", "-m", "add second line"]).expect("second commit");
+        let head = run_git_checked(&path, &["rev-parse", "HEAD"]).expect("read head");
+        let second_hash = String::from_utf8_lossy(&head.stdout).trim().to_string();
+
+        let first_page = read_git_history(&path, 0, 1, None).expect("first history page");
+        assert_eq!(first_page.commits.len(), 1);
+        assert!(first_page.has_more);
+        assert_eq!(first_page.commits[0].subject, "add second line");
+
+        let file_history = read_git_history(&path, 0, 20, Some("notes.txt")).expect("file history");
+        assert_eq!(file_history.commits.len(), 2);
+
+        let detail = read_git_commit_detail(&path, &second_hash).expect("commit detail");
+        assert_eq!(detail.commit.subject, "add second line");
+        assert!(
+            detail
+                .files
+                .iter()
+                .any(|file| file.path == "notes.txt" && file.status == "M")
+        );
+        assert!(detail.patch.contains("+second"));
+
+        revert_git_commit_in_path(&path, &second_hash).expect("safe revert");
+        assert_eq!(
+            fs::read_to_string(directory.join("notes.txt")).expect("reverted file"),
+            "first\n"
+        );
+        let history = read_git_history(&path, 0, 1, None).expect("history after revert");
+        assert!(
+            history.commits[0]
+                .subject
+                .starts_with("Revert \"add second line\"")
+        );
+
+        fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
+
+    #[test]
+    fn aborts_a_conflicting_revert_without_leaving_repository_state() {
+        let directory = std::env::temp_dir().join(format!("runbox-revert-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("temporary repository");
+        let path = directory.to_string_lossy();
+
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(directory.join("notes.txt"), "first\n").expect("initial file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+
+        fs::write(directory.join("notes.txt"), "second\n").expect("second version");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage second version");
+        run_git_checked(&path, &["commit", "-m", "replace first"]).expect("target commit");
+        let target = run_git_checked(&path, &["rev-parse", "HEAD"]).expect("target hash");
+        let target_hash = String::from_utf8_lossy(&target.stdout).trim().to_string();
+
+        fs::write(directory.join("notes.txt"), "third\n").expect("third version");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage third version");
+        run_git_checked(&path, &["commit", "-m", "replace second"]).expect("later commit");
+
+        let error =
+            revert_git_commit_in_path(&path, &target_hash).expect_err("conflicting revert fails");
+        assert!(error.starts_with("Revert was not applied."));
+        assert_eq!(
+            fs::read_to_string(directory.join("notes.txt")).expect("restored file"),
+            "third\n"
+        );
+        assert!(
+            read_git_workspace(&path)
+                .expect("clean workspace")
+                .files
+                .is_empty()
+        );
 
         fs::remove_dir_all(directory).expect("remove temporary repository");
     }

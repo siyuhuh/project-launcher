@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   CommitMessageProvider,
+  GitCommitDetail,
+  GitHistoryPage,
   GitWorkspace,
   Project,
   ProjectDraft,
@@ -70,6 +72,29 @@ export function getGitDiff(
   staged: boolean,
 ): Promise<string> {
   return invoke("get_git_diff", { projectId, filePath, staged });
+}
+
+export function getGitHistory(
+  projectId: string,
+  offset: number,
+  limit: number,
+  filePath: string | null,
+): Promise<GitHistoryPage> {
+  return invoke("get_git_history", { projectId, offset, limit, filePath });
+}
+
+export function getGitCommitDetail(
+  projectId: string,
+  commitHash: string,
+): Promise<GitCommitDetail> {
+  return invoke("get_git_commit_detail", { projectId, commitHash });
+}
+
+export function revertGitCommit(
+  projectId: string,
+  commitHash: string,
+): Promise<GitWorkspace> {
+  return invoke("revert_git_commit", { projectId, commitHash });
 }
 
 export function stageGitFiles(projectId: string, paths: string[]): Promise<GitWorkspace> {

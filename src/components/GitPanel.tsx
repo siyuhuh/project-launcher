@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowDownToLine,
   ArrowUpFromLine,
   Check,
   Cpu,
   ExternalLink,
+  FileClock,
   GitBranch,
   GitCommitHorizontal,
+  History,
   LoaderCircle,
   Minus,
   Plus,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   X,
 } from "lucide-react";
@@ -19,26 +23,33 @@ import {
   createCommit,
   fetchRepository,
   generateCommitMessage,
+  getGitCommitDetail,
   getCommitMessageProviders,
   getGitDiff,
+  getGitHistory,
   getGitWorkspace,
   openLocalAiSetup,
   pullRepository,
   pushRepository,
+  revertGitCommit,
   stageGitFiles,
   switchBranch,
   unstageGitFiles,
 } from "../lib/backend";
 import type {
   CommitMessageProvider,
+  GitCommit,
+  GitCommitDetail,
   GitFileChange,
   GitWorkspace,
   ProjectView,
 } from "../types";
 
 type Selection = { path: string; staged: boolean };
+type GitView = "changes" | "history";
 const COMMIT_PROVIDER_STORAGE_KEY = "runbox.commitProvider";
 const LOCAL_AI_PROMPT_STORAGE_KEY = "runbox.localAiPromptDismissed";
+const HISTORY_PAGE_SIZE = 30;
 
 interface Props {
   project: ProjectView;
@@ -67,7 +78,17 @@ export function GitPanel({
     () => window.localStorage.getItem(LOCAL_AI_PROMPT_STORAGE_KEY) !== "true",
   );
   const [branchDraft, setBranchDraft] = useState("");
+  const [view, setView] = useState<GitView>("changes");
+  const [history, setHistory] = useState<GitCommit[]>([]);
+  const [historyPath, setHistoryPath] = useState<string | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
+  const [commitDetail, setCommitDetail] = useState<GitCommitDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [revertConfirmHash, setRevertConfirmHash] = useState<string | null>(null);
   const busyRef = useRef(false);
+  const historyRequestRef = useRef(0);
 
   const refresh = useCallback(
     async (showLoading = false) => {
@@ -78,6 +99,39 @@ export function GitPanel({
         onNotify(errorMessage(error), "error");
       } finally {
         if (showLoading) setLoading(false);
+      }
+    },
+    [onNotify, project.id],
+  );
+
+  const loadHistory = useCallback(
+    async (reset: boolean, filePath: string | null, offset: number) => {
+      const requestId = ++historyRequestRef.current;
+      setHistoryLoading(true);
+      if (reset) {
+        setHistory([]);
+        setHistoryHasMore(false);
+        setSelectedCommitHash(null);
+        setCommitDetail(null);
+        setRevertConfirmHash(null);
+      }
+      try {
+        const page = await getGitHistory(
+          project.id,
+          reset ? 0 : offset,
+          HISTORY_PAGE_SIZE,
+          filePath,
+        );
+        if (requestId !== historyRequestRef.current) return;
+        setHistory((current) => (reset ? page.commits : [...current, ...page.commits]));
+        setHistoryHasMore(page.hasMore);
+        if (reset) setSelectedCommitHash(page.commits[0]?.hash ?? null);
+      } catch (error) {
+        if (requestId === historyRequestRef.current) {
+          onNotify(errorMessage(error), "error");
+        }
+      } finally {
+        if (requestId === historyRequestRef.current) setHistoryLoading(false);
       }
     },
     [onNotify, project.id],
@@ -94,6 +148,35 @@ export function GitPanel({
   useEffect(() => {
     busyRef.current = Boolean(busy);
   }, [busy]);
+
+  useEffect(() => {
+    if (view === "history") void loadHistory(true, historyPath, 0);
+  }, [historyPath, loadHistory, view]);
+
+  useEffect(() => {
+    if (view !== "history" || !selectedCommitHash) {
+      setCommitDetail(null);
+      setDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCommitDetail(null);
+    setRevertConfirmHash(null);
+    setDetailLoading(true);
+    getGitCommitDetail(project.id, selectedCommitHash)
+      .then((detail) => {
+        if (!cancelled) setCommitDetail(detail);
+      })
+      .catch((error) => {
+        if (!cancelled) onNotify(errorMessage(error), "error");
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onNotify, project.id, selectedCommitHash, view]);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,6 +275,11 @@ export function GitPanel({
     setBusy(label);
     try {
       setWorkspace(await action());
+      if (view === "history") {
+        void loadHistory(true, historyPath, 0);
+      } else {
+        setHistory([]);
+      }
       onProjectRefresh();
       onNotify(successMessage, "success");
     } catch (error) {
@@ -243,6 +331,29 @@ export function GitPanel({
       `Created ${branch}`,
     );
     setBranchDraft("");
+  }
+
+  async function handleRevert() {
+    if (
+      !commitDetail ||
+      revertConfirmHash !== commitDetail.hash ||
+      busy ||
+      commitDetail.parents.length > 1
+    ) {
+      return;
+    }
+    setBusy("revert");
+    try {
+      setWorkspace(await revertGitCommit(project.id, commitDetail.hash));
+      onProjectRefresh();
+      onNotify(`Created a revert for ${commitDetail.shortHash}`, "success");
+      await loadHistory(true, historyPath, 0);
+    } catch (error) {
+      onNotify(errorMessage(error), "error");
+    } finally {
+      setBusy(null);
+      setRevertConfirmHash(null);
+    }
   }
 
   const hasRemote = Boolean(workspace?.remoteUrl || workspace?.upstream);
@@ -317,6 +428,26 @@ export function GitPanel({
             </button>
           </form>
 
+          <div className="git-view-tabs" role="tablist" aria-label="Git workspace view">
+            <button
+              role="tab"
+              aria-selected={view === "changes"}
+              data-active={view === "changes"}
+              onClick={() => setView("changes")}
+            >
+              Changes
+              {workspace?.files.length ? <span>{workspace.files.length}</span> : null}
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === "history"}
+              data-active={view === "history"}
+              onClick={() => setView("history")}
+            >
+              <History size={12} /> History
+            </button>
+          </div>
+
           <div className="git-sync-actions">
             <button
               onClick={() =>
@@ -365,7 +496,9 @@ export function GitPanel({
         </div>
 
         <div className="git-workspace-body">
-          <aside className="git-change-pane">
+          {view === "changes" ? (
+            <>
+              <aside className="git-change-pane">
             {loading ? (
               <div className="git-loading-state">
                 <LoaderCircle className="spin" size={15} /> Reading repository
@@ -539,23 +672,263 @@ export function GitPanel({
                 </div>
               </>
             ) : null}
-          </aside>
+              </aside>
 
-          <main className="git-diff-pane">
-            <div className="git-diff-header">
-              <div>
-                <strong title={selection?.path}>{selection?.path ?? "Select a changed file"}</strong>
-                {selection ? (
-                  <span>{selection.staged ? "Staged diff" : "Working tree diff"}</span>
-                ) : null}
-              </div>
-              {selection ? <FileStatus status={workspace?.files.find((file) => file.path === selection.path)?.status ?? ""} /> : null}
-            </div>
-            <DiffView contents={diff} loading={diffLoading} hasSelection={Boolean(selection)} />
-          </main>
+              <main className="git-diff-pane">
+                <div className="git-diff-header">
+                  <div>
+                    <strong title={selection?.path}>{selection?.path ?? "Select a changed file"}</strong>
+                    {selection ? (
+                      <span>{selection.staged ? "Staged diff" : "Working tree diff"}</span>
+                    ) : null}
+                  </div>
+                  {selection ? (
+                    <div className="git-diff-header-actions">
+                      <button
+                        className="git-file-history-button"
+                        onClick={() => {
+                          setHistoryPath(selection.path);
+                          setView("history");
+                        }}
+                        title={`Show history for ${selection.path}`}
+                      >
+                        <FileClock size={12} /> File history
+                      </button>
+                      <FileStatus status={workspace?.files.find((file) => file.path === selection.path)?.status ?? ""} />
+                    </div>
+                  ) : null}
+                </div>
+                <DiffView contents={diff} loading={diffLoading} hasSelection={Boolean(selection)} />
+              </main>
+            </>
+          ) : (
+            <>
+              <GitHistoryTimeline
+                commits={history}
+                selectedHash={selectedCommitHash}
+                filePath={historyPath}
+                loading={historyLoading}
+                hasMore={historyHasMore}
+                onSelect={setSelectedCommitHash}
+                onShowAll={() => setHistoryPath(null)}
+                onLoadMore={() =>
+                  void loadHistory(false, historyPath, history.length)
+                }
+              />
+              <GitCommitDetailView
+                detail={commitDetail}
+                loading={detailLoading}
+                workingTreeDirty={Boolean(workspace?.files.length)}
+                busy={busy === "revert"}
+                confirming={revertConfirmHash === commitDetail?.hash}
+                onRequestRevert={() =>
+                  setRevertConfirmHash(commitDetail?.hash ?? null)
+                }
+                onCancelRevert={() => setRevertConfirmHash(null)}
+                onConfirmRevert={() => void handleRevert()}
+              />
+            </>
+          )}
         </div>
       </section>
     </div>
+  );
+}
+
+function GitHistoryTimeline({
+  commits,
+  selectedHash,
+  filePath,
+  loading,
+  hasMore,
+  onSelect,
+  onShowAll,
+  onLoadMore,
+}: {
+  commits: GitCommit[];
+  selectedHash: string | null;
+  filePath: string | null;
+  loading: boolean;
+  hasMore: boolean;
+  onSelect: (hash: string) => void;
+  onShowAll: () => void;
+  onLoadMore: () => void;
+}) {
+  return (
+    <aside className="git-history-pane">
+      <header className="git-history-scope">
+        <div>
+          <span><History size={11} /> {filePath ? "FILE HISTORY" : "RECENT COMMITS"}</span>
+          {filePath ? <strong title={filePath}>{filePath}</strong> : null}
+        </div>
+        {filePath ? <button onClick={onShowAll}>All commits</button> : null}
+      </header>
+
+      {loading && commits.length === 0 ? (
+        <div className="git-loading-state">
+          <LoaderCircle className="spin" size={15} /> Reading history
+        </div>
+      ) : commits.length === 0 ? (
+        <div className="git-history-empty">
+          <GitCommitHorizontal size={18} />
+          <strong>No commits found</strong>
+          <span>{filePath ? "This file has no committed history yet." : "This repository has no commits yet."}</span>
+        </div>
+      ) : (
+        <div className="git-history-list">
+          {commits.map((commit) => (
+            <button
+              className="git-history-row"
+              data-active={selectedHash === commit.hash}
+              key={commit.hash}
+              onClick={() => onSelect(commit.hash)}
+              title={commit.subject}
+            >
+              <span className="git-history-rail" aria-hidden="true"><i /></span>
+              <span className="git-history-copy">
+                <strong>{commit.subject}</strong>
+                <span>{commit.authorName} · {formatCommitDate(commit.authoredAt, true)}</span>
+                {commit.refs.length ? (
+                  <span className="git-history-refs">
+                    {commit.refs.slice(0, 2).map((ref) => <em key={ref}>{ref}</em>)}
+                  </span>
+                ) : null}
+              </span>
+              <code>{commit.shortHash}</code>
+            </button>
+          ))}
+          {hasMore ? (
+            <button
+              className="git-history-more"
+              onClick={onLoadMore}
+              disabled={loading}
+            >
+              {loading ? <LoaderCircle className="spin" size={11} /> : null}
+              Load older commits
+            </button>
+          ) : (
+            <div className="git-history-end">End of history</div>
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function GitCommitDetailView({
+  detail,
+  loading,
+  workingTreeDirty,
+  busy,
+  confirming,
+  onRequestRevert,
+  onCancelRevert,
+  onConfirmRevert,
+}: {
+  detail: GitCommitDetail | null;
+  loading: boolean;
+  workingTreeDirty: boolean;
+  busy: boolean;
+  confirming: boolean;
+  onRequestRevert: () => void;
+  onCancelRevert: () => void;
+  onConfirmRevert: () => void;
+}) {
+  if (loading) {
+    return (
+      <main className="git-history-detail">
+        <div className="git-diff-empty">
+          <LoaderCircle className="spin" size={16} /> Reading commit
+        </div>
+      </main>
+    );
+  }
+  if (!detail) {
+    return (
+      <main className="git-history-detail">
+        <div className="git-diff-empty">
+          <GitCommitHorizontal size={19} /> Select a commit to inspect it.
+        </div>
+      </main>
+    );
+  }
+
+  const mergeCommit = detail.parents.length > 1;
+  const revertDisabled = mergeCommit || workingTreeDirty || busy;
+  const revertTitle = mergeCommit
+    ? "Merge commits are view-only because reverting one requires choosing a mainline parent"
+    : workingTreeDirty
+      ? "Commit or stash local changes before reverting"
+      : "Create a new commit that reverses this commit";
+
+  return (
+    <main className="git-history-detail">
+      <header className="git-commit-detail-header">
+        <div className="git-commit-title-row">
+          <div>
+            {detail.refs.length ? (
+              <div className="git-commit-refs">
+                {detail.refs.map((ref) => <span key={ref}>{ref}</span>)}
+              </div>
+            ) : null}
+            <h3>{detail.subject}</h3>
+          </div>
+          <button
+            className="git-revert-button"
+            onClick={onRequestRevert}
+            disabled={revertDisabled}
+            title={revertTitle}
+          >
+            <RotateCcw size={12} /> Revert commit
+          </button>
+        </div>
+        {detail.body ? <p>{detail.body}</p> : null}
+        <div className="git-commit-meta">
+          <span><strong>{detail.authorName}</strong> &lt;{detail.authorEmail}&gt;</span>
+          <span>{formatCommitDate(detail.authoredAt, false)}</span>
+          <code title={detail.hash}>{detail.shortHash}</code>
+          {mergeCommit ? <em>Merge · view only</em> : null}
+        </div>
+        {confirming ? (
+          <div className="git-revert-confirm">
+            <AlertTriangle size={14} />
+            <div>
+              <strong>Reverse {detail.shortHash} with a new commit?</strong>
+              <span>History stays intact. If Git finds a conflict, Runbox aborts the revert.</span>
+            </div>
+            <button onClick={onCancelRevert} disabled={busy}>Cancel</button>
+            <button onClick={onConfirmRevert} disabled={busy}>
+              {busy ? <LoaderCircle className="spin" size={11} /> : <RotateCcw size={11} />}
+              Create revert
+            </button>
+          </div>
+        ) : null}
+      </header>
+
+      <section className="git-commit-files">
+        <header>
+          <span>FILES <strong>{detail.files.length}</strong></span>
+          {detail.patchTruncated ? <em>Patch truncated</em> : null}
+        </header>
+        <div>
+          {detail.files.map((file) => (
+            <span className="git-commit-file" key={`${file.status}:${file.previousPath ?? ""}:${file.path}`} title={file.path}>
+              <FileStatus status={file.status} />
+              <span>
+                {file.previousPath ? <small>{file.previousPath} →</small> : null}
+                {file.path}
+              </span>
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <div className="git-commit-patch-header">
+        <span>PATCH</span>
+        <code>{detail.shortHash}</code>
+      </div>
+      <DiffView contents={detail.patch} loading={false} hasSelection />
+    </main>
   );
 }
 
@@ -672,6 +1045,18 @@ function diffLineKind(line: string): "add" | "remove" | "hunk" | "meta" | "conte
     return "meta";
   }
   return "context";
+}
+
+function formatCommitDate(value: string, compact: boolean): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    year: compact ? undefined : "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function errorMessage(error: unknown): string {

@@ -11,7 +11,7 @@ Runbox remembers each project directory and start command, then gives you one sh
 - filter by status or project tool and see when each project was last opened;
 - switch between comfortable cards, compact cards, and a Notion-style table;
 - inspect each project's Git branch, clean/changed state, and ahead/behind counts;
-- review diffs, stage files, commit, switch branches, and sync a repository without leaving Runbox;
+- review diffs and commit history, stage files, commit, switch branches, and sync a repository without leaving Runbox;
 - draft commit messages with a local Ollama model, Codex CLI, or Cursor Agent;
 - mirror Finder tag colors from the project folders on macOS;
 - use the same entries from Terminal with `p my-project`;
@@ -141,11 +141,16 @@ core GitHub Desktop workflow:
 - stage or unstage individual files or all files;
 - commit staged changes;
 - switch local branches or create a branch;
-- fetch, fast-forward pull, push, or publish a branch.
+- fetch, fast-forward pull, push, or publish a branch;
+- browse recent commits with paginated loading and inspect commit metadata, changed files, and patches;
+- open the committed history for a file directly from its working-tree diff;
+- safely revert a non-merge commit by creating a new commit.
 
 Background checks remain local and read-only. Network operations only run after an explicit click.
 Pull uses `--ff-only`, Runbox does not force-push, and destructive discard/reset actions are not
-exposed.
+exposed. Revert also requires a clean working tree. If Git reports a conflict, Runbox aborts the
+operation instead of leaving a partial revert; merge commits remain view-only because choosing
+their mainline parent is ambiguous.
 
 ### AI commit messages
 

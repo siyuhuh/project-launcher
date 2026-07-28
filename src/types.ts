@@ -52,6 +52,37 @@ export interface GitFileChange {
   unstaged: boolean;
 }
 
+export interface GitCommit {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: string;
+  parents: string[];
+  refs: string[];
+}
+
+export interface GitHistoryPage {
+  commits: GitCommit[];
+  offset: number;
+  hasMore: boolean;
+}
+
+export interface GitCommitFile {
+  path: string;
+  previousPath: string | null;
+  status: string;
+}
+
+export interface GitCommitDetail extends GitCommit {
+  body: string;
+  committedAt: string;
+  files: GitCommitFile[];
+  patch: string;
+  patchTruncated: boolean;
+}
+
 export interface CommitMessageProvider {
   id: string;
   name: string;
