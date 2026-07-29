@@ -1,6 +1,6 @@
 :root {
-  color: #eef3ef;
-  background: #0a0c0b;
+  color: var(--text);
+  background: var(--bg);
   font-family: "Fira Code Variable", "Fira Code", "SFMono-Regular", "SF Mono", Menlo,
     Monaco, Consolas, monospace;
   font-synthesis: none;
@@ -9,6 +9,13 @@
   --sidebar: #0d100e;
   --surface: #111512;
   --raised: #151a16;
+  --panel: #0c0f0d;
+  --chrome: #101411;
+  --control: #151a16;
+  --control-hover: #1a1f1b;
+  --subtle: #171c18;
+  --row-hover: #141915;
+  --deep: #090c0a;
   --line: #242a25;
   --line-strong: #303832;
   --text: #eef3ef;
@@ -17,7 +24,85 @@
   --green: #9bea78;
   --red: #ef877e;
   --amber: #f2c66d;
+  --on-accent: #0b100c;
+  --accent-hover: #acf58a;
+  --backdrop: rgb(3 5 4 / 78%);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+:root[data-theme="graphite"] {
+  --bg: #101112;
+  --sidebar: #141516;
+  --surface: #181a1b;
+  --raised: #1e2021;
+  --panel: #121314;
+  --chrome: #181a1b;
+  --control: #202224;
+  --control-hover: #272a2c;
+  --subtle: #202224;
+  --row-hover: #1c1e20;
+  --deep: #0d0e0f;
+  --line: #292c2e;
+  --line-strong: #3a3e41;
+  --text: #f0f1f1;
+  --muted: #94999b;
+  --quiet: #62676a;
+  --green: #a7d8c7;
+  --red: #ef918b;
+  --amber: #dfbd77;
+  --on-accent: #101513;
+  --accent-hover: #b7e5d5;
+  --backdrop: rgb(5 6 7 / 80%);
+}
+
+:root[data-theme="spool"] {
+  --bg: #11100e;
+  --sidebar: #151310;
+  --surface: #1a1814;
+  --raised: #211e19;
+  --panel: #13110f;
+  --chrome: #1a1814;
+  --control: #211e19;
+  --control-hover: #29251f;
+  --subtle: #211e19;
+  --row-hover: #1e1b17;
+  --deep: #0d0c0a;
+  --line: #302b24;
+  --line-strong: #433c31;
+  --text: #f1ede4;
+  --muted: #9f9789;
+  --quiet: #69635a;
+  --green: #e8b96d;
+  --red: #e88c82;
+  --amber: #ddc06c;
+  --on-accent: #191207;
+  --accent-hover: #f1c77f;
+  --backdrop: rgb(7 6 4 / 80%);
+}
+
+:root[data-theme="solarized"] {
+  --bg: #001e26;
+  --sidebar: #00252f;
+  --surface: #07313b;
+  --raised: #0b3b45;
+  --panel: #002832;
+  --chrome: #07313b;
+  --control: #0b3b45;
+  --control-hover: #124852;
+  --subtle: #0b3b45;
+  --row-hover: #093640;
+  --deep: #001820;
+  --line: #17434d;
+  --line-strong: #2d5b65;
+  --text: #eee8d5;
+  --muted: #a5aaa0;
+  --quiet: #6f8887;
+  --green: #52c7b8;
+  --red: #ef8d86;
+  --amber: #e6c36a;
+  --on-accent: #06231f;
+  --accent-hover: #68d5c6;
+  --backdrop: rgb(0 14 18 / 82%);
 }
 
 * {
@@ -193,6 +278,7 @@ textarea:focus-visible {
 }
 
 .sidebar-add-button,
+.sidebar-settings-button,
 .primary-button,
 .secondary-button,
 .delete-button,
@@ -220,6 +306,7 @@ textarea:focus-visible {
 }
 
 .sidebar-add-button:active,
+.sidebar-settings-button:active,
 .primary-button:active,
 .secondary-button:active,
 .delete-button:active,
@@ -243,6 +330,32 @@ textarea:focus-visible {
   border-radius: 7px;
   background: #151a16;
   font-size: 11px;
+}
+
+.sidebar-settings-button {
+  display: flex;
+  width: calc(100% - 8px);
+  height: 32px;
+  align-items: center;
+  margin: 0 4px 8px;
+  padding: 0 9px;
+  gap: 8px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 10px;
+  text-align: left;
+}
+
+.sidebar-settings-button:hover {
+  color: var(--text);
+  background: var(--subtle);
+}
+
+.sidebar-settings-button kbd {
+  margin-left: auto;
+  color: var(--quiet);
 }
 
 .sidebar-add-button kbd {
@@ -1160,6 +1273,482 @@ button.git-status:active {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.7;
+}
+
+.preferences-backdrop {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  display: grid;
+  padding: 44px 18px 18px;
+  background: var(--backdrop);
+  backdrop-filter: blur(8px);
+  place-items: center;
+}
+
+.preferences-panel {
+  position: relative;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  width: min(740px, 100%);
+  height: min(560px, 100%);
+  overflow: hidden;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 32px 100px rgb(0 0 0 / 62%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+@starting-style {
+  .preferences-panel {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.preferences-sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 20px 11px 12px;
+  border-right: 1px solid var(--line);
+  background: var(--sidebar);
+}
+
+.preferences-sidebar > header {
+  display: flex;
+  align-items: center;
+  padding: 0 8px 21px;
+  gap: 9px;
+}
+
+.preferences-mark {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  flex: 0 0 29px;
+  color: var(--on-accent);
+  border-radius: 7px;
+  background: var(--green);
+  place-items: center;
+}
+
+.preferences-sidebar h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.preferences-sidebar header p {
+  margin: 3px 0 0;
+  color: var(--quiet);
+  font-size: 8px;
+}
+
+.preferences-sidebar nav {
+  display: grid;
+  gap: 3px;
+}
+
+.preferences-nav-item,
+.preferences-reset,
+.preferences-close,
+.scale-stepper button,
+.scale-presets button,
+.theme-card {
+  border: 0;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.preferences-nav-item {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  align-items: center;
+  padding: 0 9px;
+  gap: 8px;
+  color: var(--muted);
+  border-radius: 7px;
+  background: transparent;
+  font-size: 10px;
+  text-align: left;
+}
+
+.preferences-nav-item:hover {
+  color: var(--text);
+}
+
+.preferences-nav-item[data-active="true"] {
+  color: var(--text);
+  background: var(--subtle);
+}
+
+.preferences-nav-item[data-active="true"] svg {
+  color: var(--green);
+}
+
+.preferences-reset {
+  display: flex;
+  width: 100%;
+  height: 31px;
+  align-items: center;
+  margin-top: auto;
+  padding: 0 9px;
+  gap: 7px;
+  color: var(--quiet);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 8px;
+  text-align: left;
+}
+
+.preferences-reset:hover {
+  color: var(--muted);
+  background: var(--subtle);
+}
+
+.preferences-content {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 30px 32px;
+  background: var(--panel);
+}
+
+.preferences-section {
+  width: min(100%, 500px);
+}
+
+.preferences-section-heading {
+  display: flex;
+  min-height: 51px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.preferences-section-heading p {
+  margin: 0 0 6px;
+  color: var(--green);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.preferences-section-heading h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 680;
+  letter-spacing: -0.035em;
+}
+
+.preferences-section-heading > span {
+  padding: 5px 8px;
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green), transparent 75%);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--green), transparent 93%);
+  font-family: "Fira Code Variable", "Fira Code", monospace;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.scale-card {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  min-height: 138px;
+  margin-top: 17px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.scale-preview {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 9px;
+  border-right: 1px solid var(--line);
+  background: var(--deep);
+}
+
+.scale-preview > div {
+  display: flex;
+  gap: 4px;
+}
+
+.scale-preview i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--quiet);
+}
+
+.scale-preview i:first-child {
+  background: var(--green);
+}
+
+.scale-preview span {
+  font-size: 24px;
+  font-weight: 720;
+  letter-spacing: -0.06em;
+}
+
+.scale-preview small {
+  color: var(--quiet);
+  font-family: "Fira Code Variable", "Fira Code", monospace;
+  font-size: 8px;
+}
+
+.scale-controls {
+  display: grid;
+  align-content: center;
+  padding: 19px;
+  gap: 17px;
+}
+
+.scale-stepper {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 11px;
+}
+
+.scale-stepper button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--control);
+  place-items: center;
+}
+
+.scale-stepper button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--control-hover);
+}
+
+.scale-stepper button:active:not(:disabled),
+.scale-presets button:active,
+.theme-card:active,
+.preferences-close:active,
+.preferences-nav-item:active,
+.preferences-reset:active {
+  transform: scale(0.97);
+}
+
+.scale-stepper button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.scale-stepper input {
+  width: 100%;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+
+.scale-presets {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.scale-presets button {
+  height: 25px;
+  padding: 0;
+  color: var(--quiet);
+  border-radius: 5px;
+  background: transparent;
+  font-family: "Fira Code Variable", "Fira Code", monospace;
+  font-size: 7px;
+}
+
+.scale-presets button:hover {
+  color: var(--muted);
+  background: var(--control);
+}
+
+.scale-presets button[data-active="true"] {
+  color: var(--on-accent);
+  background: var(--green);
+}
+
+.preferences-help {
+  margin: 13px 1px 0;
+  color: var(--quiet);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.preferences-shortcuts {
+  display: flex;
+  align-items: center;
+  margin-top: 28px;
+  padding-top: 13px;
+  gap: 7px;
+  color: var(--quiet);
+  border-top: 1px solid var(--line);
+  font-size: 8px;
+}
+
+.preferences-shortcuts span {
+  margin-right: auto;
+}
+
+.preferences-shortcuts kbd {
+  min-width: 27px;
+  padding: 3px 5px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--deep);
+  font-family: "Fira Code Variable", "Fira Code", monospace;
+  font-size: 7px;
+  text-align: center;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 17px;
+  gap: 8px;
+}
+
+.theme-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 112px;
+  align-content: start;
+  padding: 11px;
+  gap: 10px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  text-align: left;
+}
+
+.theme-card:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--raised);
+}
+
+.theme-card[data-active="true"] {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--green), transparent 42%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green), transparent 78%);
+}
+
+.theme-swatches {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.65fr;
+  width: 100%;
+  height: 38px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 6px;
+}
+
+.theme-swatches i {
+  display: block;
+}
+
+.theme-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.theme-copy strong {
+  color: inherit;
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.theme-copy small {
+  overflow: hidden;
+  color: var(--quiet);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  color: var(--on-accent);
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--green);
+  place-items: center;
+}
+
+.theme-note {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 18px;
+  padding: 13px 14px;
+  gap: 10px;
+  color: var(--green);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--deep);
+}
+
+.theme-note div {
+  display: grid;
+  gap: 3px;
+}
+
+.theme-note strong {
+  color: var(--text);
+  font-size: 9px;
+}
+
+.theme-note span {
+  color: var(--quiet);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.preferences-close {
+  position: absolute;
+  z-index: 1;
+  top: 13px;
+  right: 13px;
+  display: grid;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  place-items: center;
+}
+
+.preferences-close:hover {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--control-hover);
 }
 
 .tools-panel-backdrop {
@@ -2894,6 +3483,116 @@ button.git-status:active {
   }
 }
 
+/* Theme surface mapping keeps every workspace on the same semantic palette. */
+.brand-mark,
+.primary-button,
+.run-button,
+.git-sync-actions .git-push-button:not(:disabled),
+.git-commit-button {
+  color: var(--on-accent);
+}
+
+.primary-button:hover {
+  background: var(--accent-hover);
+}
+
+.nav-item[data-active="true"],
+.secondary-button,
+.toast,
+.git-history-scope button,
+.git-generate-button,
+.git-local-ai-actions button:last-child,
+.git-revert-button,
+.git-revert-confirm button,
+.git-file-history-button {
+  background: var(--subtle);
+}
+
+.sidebar-add-button,
+.git-branch-select,
+.git-new-branch,
+.git-sync-actions button,
+.git-history-more,
+.git-commit-file {
+  background: var(--control);
+}
+
+.search-control,
+.view-switcher,
+.finder-access-button,
+.select-control,
+.project-table-shell {
+  background: var(--sidebar);
+}
+
+.search-control:focus-within,
+.project-table th,
+.tools-panel-header,
+.git-workspace-header,
+.git-history-scope,
+.git-commit-box,
+.git-commit-detail-header,
+.git-commit-patch-header,
+.git-diff-header,
+.project-modal,
+.log-header {
+  background: var(--chrome);
+}
+
+.tools-panel,
+.tools-panel-body,
+.git-workspace,
+.git-change-pane,
+.git-history-pane,
+.git-commit-files {
+  background: var(--panel);
+}
+
+.cli-hint,
+.tools-empty-state,
+.git-view-tabs,
+.git-commit-box textarea,
+.git-provider-select,
+.git-local-ai-copy code,
+.git-diff-pane,
+.git-history-detail,
+.git-commit-meta code,
+.log-panel {
+  background: var(--deep);
+}
+
+.tool-card {
+  background: var(--surface);
+}
+
+.icon-button:hover,
+.text-icon-button:hover,
+.panel-close-button:hover,
+.git-history-row:hover,
+.git-history-row[data-active="true"],
+.git-file-row:hover,
+.git-file-row[data-active="true"],
+.git-file-section > header button:hover:not(:disabled) {
+  background: var(--control-hover);
+}
+
+.project-table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+.tools-panel-backdrop,
+.git-panel-backdrop,
+.modal-backdrop {
+  background: var(--backdrop);
+}
+
+.tools-panel,
+.git-workspace,
+.project-modal,
+.log-panel {
+  border-color: var(--line-strong);
+}
+
 @media (hover: hover) and (pointer: fine) {
   .project-card:hover {
     border-color: #353d37;
@@ -2902,8 +3601,8 @@ button.git-status:active {
 
   .tool-card:hover:not(:disabled) {
     color: var(--text);
-    border-color: #354038;
-    background: #171c18;
+    border-color: var(--line-strong);
+    background: var(--raised);
   }
 }
 
@@ -2966,6 +3665,37 @@ button.git-status:active {
   }
 
   .tools-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .preferences-backdrop {
+    padding: 40px 8px 8px;
+  }
+
+  .preferences-panel {
+    grid-template-columns: 148px minmax(0, 1fr);
+  }
+
+  .preferences-sidebar {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .preferences-content {
+    padding: 27px 20px;
+  }
+
+  .scale-card {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .scale-controls {
+    padding: 15px;
+  }
+
+  .theme-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

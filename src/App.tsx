@@ -19,6 +19,7 @@ import {
   Plus,
   Rows3,
   Search,
+  Settings2,
   Star,
   Tag,
   TableProperties,
@@ -28,6 +29,7 @@ import {
 import { DeveloperToolsPanel } from "./components/DeveloperToolsPanel";
 import { GitPanel } from "./components/GitPanel";
 import { LogPanel } from "./components/LogPanel";
+import { PreferencesPanel } from "./components/PreferencesPanel";
 import { ProjectCard } from "./components/ProjectCard";
 import { ProjectModal } from "./components/ProjectModal";
 import { ProjectTable } from "./components/ProjectTable";
@@ -46,6 +48,12 @@ import {
   stopProject,
 } from "./lib/backend";
 import { commandTag, type CommandTag } from "./lib/projectMeta";
+import {
+  applyPreferences,
+  loadPreferences,
+  savePreferences,
+  updateUiScale,
+} from "./lib/preferences";
 import type { Project, ProjectForm, ProjectView } from "./types";
 import "./App.css";
 
@@ -95,6 +103,8 @@ export default function App() {
   const [logProjectId, setLogProjectId] = useState<string | null>(null);
   const [gitProjectId, setGitProjectId] = useState<string | null>(null);
   const [toolsProjectId, setToolsProjectId] = useState<string | null>(null);
+  const [preferences, setPreferences] = useState(loadPreferences);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [logContents, setLogContents] = useState("");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
@@ -137,6 +147,13 @@ export default function App() {
   }, [viewMode]);
 
   useEffect(() => {
+    savePreferences(preferences);
+    void applyPreferences(preferences).catch((error) => {
+      console.error("Failed to apply interface preferences", error);
+    });
+  }, [preferences]);
+
+  useEffect(() => {
     if (!logProjectId) {
       setLogContents("");
       return;
@@ -163,11 +180,28 @@ export default function App() {
         event.preventDefault();
         setModalProject(EMPTY_FORM);
       }
+      if ((event.metaKey || event.ctrlKey) && event.key === ",") {
+        event.preventDefault();
+        setPreferencesOpen(true);
+      }
+      if ((event.metaKey || event.ctrlKey) && (event.key === "=" || event.key === "+")) {
+        event.preventDefault();
+        setPreferences((current) => updateUiScale(current, current.scale + 0.05));
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "-") {
+        event.preventDefault();
+        setPreferences((current) => updateUiScale(current, current.scale - 0.05));
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "0") {
+        event.preventDefault();
+        setPreferences((current) => updateUiScale(current, 1));
+      }
       if (event.key === "Escape") {
         setModalProject(null);
         setLogProjectId(null);
         setGitProjectId(null);
         setToolsProjectId(null);
+        setPreferencesOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -405,6 +439,11 @@ export default function App() {
           />
         </nav>
         <div className="sidebar-spacer" />
+        <button className="sidebar-settings-button" onClick={() => setPreferencesOpen(true)}>
+          <Settings2 size={14} />
+          Preferences
+          <kbd>⌘,</kbd>
+        </button>
         <div className="cli-hint">
           <div className="cli-hint-label">TERMINAL SHORTCUT</div>
           <code><span>$</span> p &lt;project&gt;</code>
@@ -600,6 +639,13 @@ export default function App() {
           project={toolsProject}
           onClose={() => setToolsProjectId(null)}
           onNotify={showToast}
+        />
+      ) : null}
+      {preferencesOpen ? (
+        <PreferencesPanel
+          preferences={preferences}
+          onChange={setPreferences}
+          onClose={() => setPreferencesOpen(false)}
         />
       ) : null}
       {toast ? (

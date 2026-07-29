@@ -14,6 +14,7 @@ Runbox remembers each project directory and start command, then gives you one sh
 - review diffs and commit history, stage files, commit, switch branches, and sync a repository without leaving Runbox;
 - open a project in a detected editor, Terminal, Finder, or its remote repository;
 - draft commit messages with a local Ollama model, Codex CLI, or Cursor Agent;
+- resize the entire interface and switch between locally saved color themes;
 - mirror Finder tag colors from the project folders on macOS;
 - use the same entries from Terminal with `p my-project`;
 - keep processes running when the desktop window is closed.
@@ -204,6 +205,15 @@ All views use the same project data, search, filters, sort order, pinned project
 - **Table** — a Notion-style data grid for scanning project, activity, Git, command, and actions.
 
 The selected view is saved locally and restored the next time Runbox opens.
+
+## Appearance preferences
+
+Open **Preferences** from the sidebar or press `⌘,`. Interface scaling ranges from 80% to 160% and
+applies to the entire window, including Git history, diffs, and developer tools. Use `⌘+`, `⌘−`,
+and `⌘0` for quick resizing.
+
+Runbox includes Runbox, Graphite, Spool, and Solarized themes. Scale and theme preferences are saved
+locally and restored on the next launch.
 
 ### Finder tag colors on macOS
 
