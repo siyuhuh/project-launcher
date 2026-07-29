@@ -2,9 +2,12 @@
 
 A tiny desktop and terminal launcher for local development projects.
 
-Runbox remembers each project directory and start command, then gives you one shared control plane:
+Runbox remembers each project directory and its development tasks, then gives you one shared control plane:
 
 - click **Run / Stop** in the desktop app;
+- run Web, API, Worker, and other project tasks independently or together;
+- see localhost ports, CPU, memory, uptime, and abnormal exits for every task;
+- combine tasks from multiple projects into one-click workspace groups;
 - see whether a project is actually running;
 - read recent output without finding the right terminal tab;
 - pin the few projects you use every day and sort by last opened, name, or manual order;
@@ -53,10 +56,15 @@ Make sure `~/.cargo/bin` is in `PATH`, then:
 ```bash
 p                         # list every project and its status
 p my-web                  # start by name
+p my-web api              # start one task
 p start my-web
+p tasks my-web            # inspect tasks and health
 p stop my-web
-p logs my-web
+p logs my-web api
 p logs my-web --follow
+p workspaces
+p workspace full-stack
+p workspace full-stack --stop
 p add ~/Projects/my-web
 p remove my-web
 ```
@@ -107,7 +115,7 @@ p list
 
 ## How commands run
 
-Every command runs:
+Every project task runs:
 
 1. inside the configured project directory;
 2. through the user's login shell;
@@ -122,13 +130,15 @@ This keeps tools configured through `.zshrc`, NVM, Homebrew, pnpm, and similar s
 
 When a folder is selected, Runbox inspects common project files:
 
-- `package.json` plus pnpm/npm/yarn/bun lockfiles;
+- `package.json` scripts plus pnpm/npm/yarn/bun lockfiles;
 - `justfile`;
 - Docker Compose files;
 - `Cargo.toml`;
 - `pyproject.toml`.
 
-The detected command is always editable before saving.
+Detected scripts become editable tasks. Long-running scripts such as `dev`, `web`, `api`, and
+`worker` are included in **Run project** by default; one-shot scripts such as `build`, `test`, and
+`lint` remain available for manual launch.
 
 ## Git status
 
@@ -206,6 +216,26 @@ All views use the same project data, search, filters, sort order, pinned project
 
 The selected view is saved locally and restored the next time Runbox opens.
 
+## Project tasks and health
+
+Click the activity icon on a project to open **Tasks & Health**. Each task has its own process group,
+runtime record, and log. Tasks can be started or stopped individually, while the main project
+button starts every task marked **Run with project**.
+
+For running tasks, Runbox aggregates CPU and memory across the full process group and detects
+listening TCP ports. Detected addresses open as `localhost` links. When a command exits, Runbox
+records its exit code and distinguishes successful completion, a manual stop, and an abnormal exit.
+
+Existing projects migrate automatically: their saved command becomes the primary `Dev` task and
+keeps its existing runtime and log files.
+
+## Workspace groups
+
+Open **Workspace groups** from the sidebar to combine tasks across projects. A group can start or
+stop a complete local stack—such as Web, API, and Worker—without changing the individual project
+configuration. Groups are also available from Terminal with `p workspaces` and
+`p workspace <name>`.
+
 ## Appearance preferences
 
 Open **Preferences** from the sidebar or press `⌘,`. Interface scaling ranges from 80% to 160% and
@@ -228,6 +258,7 @@ Runbox keeps machine-specific paths and logs out of Git. On macOS they live in:
 ```text
 ~/Library/Application Support/Runbox/
 ├── projects.json
+├── groups.json
 ├── logs/
 └── runtime/
 ```

@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Activity,
   ArrowDownUp,
@@ -15,6 +16,8 @@ import {
   FolderOpen,
   GitBranch,
   Grid2X2,
+  GripHorizontal,
+  Layers3,
   LayoutGrid,
   Plus,
   Rows3,
@@ -28,18 +31,18 @@ import {
 } from "lucide-react";
 import { DeveloperToolsPanel } from "./components/DeveloperToolsPanel";
 import { GitPanel } from "./components/GitPanel";
-import { LogPanel } from "./components/LogPanel";
 import { PreferencesPanel } from "./components/PreferencesPanel";
 import { ProjectCard } from "./components/ProjectCard";
 import { ProjectModal } from "./components/ProjectModal";
+import { ProjectTasksPanel } from "./components/ProjectTasksPanel";
 import { ProjectTable } from "./components/ProjectTable";
+import { WorkspaceGroupsPanel } from "./components/WorkspaceGroupsPanel";
 import {
-  clearProjectLog,
   deleteProject,
   getProjects,
+  getWorkspaceGroups,
   openProjectFolder,
   openProjectTerminal,
-  readProjectLog,
   refreshFinderColors,
   reorderProjects,
   saveProject,
@@ -68,6 +71,14 @@ const EMPTY_FORM: ProjectForm = {
   name: "",
   path: "",
   command: "",
+  tasks: [
+    {
+      id: "default",
+      name: "Dev",
+      command: "",
+      autoStart: true,
+    },
+  ],
   favorite: false,
   sortOrder: 0,
 };
@@ -100,12 +111,13 @@ export default function App() {
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [favoritePendingIds, setFavoritePendingIds] = useState<Set<string>>(() => new Set());
   const [modalProject, setModalProject] = useState<ProjectForm | null>(null);
-  const [logProjectId, setLogProjectId] = useState<string | null>(null);
+  const [taskProjectId, setTaskProjectId] = useState<string | null>(null);
   const [gitProjectId, setGitProjectId] = useState<string | null>(null);
   const [toolsProjectId, setToolsProjectId] = useState<string | null>(null);
+  const [workspaceGroupsOpen, setWorkspaceGroupsOpen] = useState(false);
+  const [workspaceGroupCount, setWorkspaceGroupCount] = useState(0);
   const [preferences, setPreferences] = useState(loadPreferences);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
-  const [logContents, setLogContents] = useState("");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -116,6 +128,12 @@ export default function App() {
     window.setTimeout(() => {
       setToast((current) => (current?.id === nextToast.id ? null : current));
     }, 3_000);
+  }, []);
+
+  const startWindowDrag = useCallback(() => {
+    void getCurrentWindow().startDragging().catch((error) => {
+      console.error("Failed to start window drag", error);
+    });
   }, []);
 
   const refreshProjects = useCallback(
@@ -154,21 +172,17 @@ export default function App() {
   }, [preferences]);
 
   useEffect(() => {
-    if (!logProjectId) {
-      setLogContents("");
-      return;
-    }
-    const updateLog = async () => {
+    async function refreshWorkspaceGroupCount() {
       try {
-        setLogContents(await readProjectLog(logProjectId, 300));
+        setWorkspaceGroupCount((await getWorkspaceGroups()).length);
       } catch (error) {
-        showToast(errorMessage(error), "error");
+        console.error("Failed to read workspace groups", error);
       }
-    };
-    void updateLog();
-    const interval = window.setInterval(updateLog, 700);
+    }
+    void refreshWorkspaceGroupCount();
+    const interval = window.setInterval(refreshWorkspaceGroupCount, 3_000);
     return () => window.clearInterval(interval);
-  }, [logProjectId, showToast]);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -198,9 +212,10 @@ export default function App() {
       }
       if (event.key === "Escape") {
         setModalProject(null);
-        setLogProjectId(null);
+        setTaskProjectId(null);
         setGitProjectId(null);
         setToolsProjectId(null);
+        setWorkspaceGroupsOpen(false);
         setPreferencesOpen(false);
       }
     };
@@ -210,6 +225,10 @@ export default function App() {
 
   const runningCount = useMemo(
     () => projects.reduce((count, project) => count + Number(project.status === "running"), 0),
+    [projects],
+  );
+  const activeTaskCount = useMemo(
+    () => projects.reduce((count, project) => count + project.runningTaskCount, 0),
     [projects],
   );
   const favoriteCount = useMemo(
@@ -235,14 +254,19 @@ export default function App() {
       if (!matchesFilter(project, filter)) return false;
       if (tagFilter !== "all" && commandTag(project.command) !== tagFilter) return false;
       if (!normalizedQuery) return true;
-      return [project.name, project.path, project.command].some((value) =>
+      return [
+        project.name,
+        project.path,
+        project.command,
+        ...project.tasks.flatMap((task) => [task.name, task.command]),
+      ].some((value) =>
         value.toLowerCase().includes(normalizedQuery),
       );
     });
     return sortProjects(filtered, sortMode);
   }, [filter, projects, query, sortMode, tagFilter]);
 
-  const logProject = projects.find((project) => project.id === logProjectId) ?? null;
+  const taskProject = projects.find((project) => project.id === taskProjectId) ?? null;
   const gitProject = projects.find((project) => project.id === gitProjectId) ?? null;
   const toolsProject = projects.find((project) => project.id === toolsProjectId) ?? null;
   const canReorder =
@@ -268,8 +292,8 @@ export default function App() {
         showToast(`${project.name} stopped`, "success");
       } else {
         await startProject(project.id);
-        setLogProjectId(project.id);
-        showToast(`${project.name} started`, "success");
+        setTaskProjectId(project.id);
+        showToast(`${project.name} tasks started`, "success");
       }
     });
   }
@@ -308,7 +332,7 @@ export default function App() {
     try {
       await deleteProject(project.id);
       setModalProject(null);
-      if (logProjectId === project.id) setLogProjectId(null);
+      if (taskProjectId === project.id) setTaskProjectId(null);
       await refreshProjects();
       showToast(`${project.name} removed`, "success");
     } catch (error) {
@@ -394,7 +418,19 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <div className="window-drag-region" data-tauri-drag-region />
+      <div className="window-drag-region" data-tauri-drag-region>
+        <button
+          type="button"
+          className="window-drag-handle"
+          aria-label="Drag to move window"
+          data-tauri-drag-region
+          onMouseDown={(event) => {
+            if (event.button === 0) startWindowDrag();
+          }}
+        >
+          <GripHorizontal size={18} strokeWidth={2} />
+        </button>
+      </div>
       <aside className="sidebar">
         <div className="brand" aria-label="Runbox">
           <span className="brand-mark"><Terminal size={17} strokeWidth={2.2} /></span>
@@ -438,6 +474,15 @@ export default function App() {
             onClick={() => setFilter("stopped")}
           />
         </nav>
+        <div className="sidebar-section-label">WORKSPACES</div>
+        <button
+          className="sidebar-workspaces-button"
+          onClick={() => setWorkspaceGroupsOpen(true)}
+        >
+          <Layers3 size={15} />
+          <span>Workspace groups</span>
+          <strong>{workspaceGroupCount}</strong>
+        </button>
         <div className="sidebar-spacer" />
         <button className="sidebar-settings-button" onClick={() => setPreferencesOpen(true)}>
           <Settings2 size={14} />
@@ -485,7 +530,7 @@ export default function App() {
             <span><strong>{visibleProjects.length}</strong> shown</span>
             <span className="summary-separator">/</span>
             <span className={runningCount > 0 ? "summary-running" : ""}>
-              <i />{runningCount} running
+              <i />{activeTaskCount} tasks running
             </span>
             <span className="summary-separator">/</span>
             <span className={gitChangesCount > 0 ? "summary-git" : ""}>
@@ -558,7 +603,7 @@ export default function App() {
                 dropTargetId={dropTargetId}
                 onToggle={(project) => void handleToggle(project)}
                 onFavorite={(project) => void handleFavorite(project)}
-                onLogs={(project) => setLogProjectId(project.id)}
+                onLogs={(project) => setTaskProjectId(project.id)}
                 onEdit={(project) => setModalProject(project)}
                 onGit={(project) => setGitProjectId(project.id)}
                 onTools={(project) => setToolsProjectId(project.id)}
@@ -590,7 +635,7 @@ export default function App() {
                     dropTarget={dropTargetId === project.id}
                     onToggle={() => void handleToggle(project)}
                     onFavorite={() => void handleFavorite(project)}
-                    onLogs={() => setLogProjectId(project.id)}
+                    onLogs={() => setTaskProjectId(project.id)}
                     onEdit={() => setModalProject(project)}
                     onGit={() => setGitProjectId(project.id)}
                     onTools={() => setToolsProjectId(project.id)}
@@ -618,12 +663,21 @@ export default function App() {
           onDelete={modalProject.id ? handleDelete : undefined}
         />
       ) : null}
-      {logProject ? (
-        <LogPanel
-          project={logProject}
-          contents={logContents}
-          onClose={() => setLogProjectId(null)}
-          onClear={() => void clearProjectLog(logProject.id).then(() => setLogContents("")).catch((error) => showToast(errorMessage(error), "error"))}
+      {taskProject ? (
+        <ProjectTasksPanel
+          project={taskProject}
+          onClose={() => setTaskProjectId(null)}
+          onProjectRefresh={() => void refreshProjects()}
+          onNotify={showToast}
+        />
+      ) : null}
+      {workspaceGroupsOpen ? (
+        <WorkspaceGroupsPanel
+          projects={projects}
+          onClose={() => setWorkspaceGroupsOpen(false)}
+          onProjectRefresh={() => void refreshProjects()}
+          onGroupCountChange={setWorkspaceGroupCount}
+          onNotify={showToast}
         />
       ) : null}
       {gitProject ? (

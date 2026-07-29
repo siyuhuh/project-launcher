@@ -8,7 +8,10 @@ import type {
   Project,
   ProjectDraft,
   ProjectForm,
+  ProjectTaskView,
   ProjectView,
+  WorkspaceGroup,
+  WorkspaceGroupView,
 } from "../types";
 
 export function getProjects(): Promise<ProjectView[]> {
@@ -47,12 +50,70 @@ export function stopProject(projectId: string): Promise<ProjectView> {
   return invoke("halt_project", { projectId });
 }
 
+export function getProjectTasks(projectId: string): Promise<ProjectTaskView[]> {
+  return invoke("get_project_tasks", { projectId });
+}
+
+export function startProjectTask(
+  projectId: string,
+  taskId: string,
+): Promise<ProjectTaskView> {
+  return invoke("launch_project_task", { projectId, taskId });
+}
+
+export function stopProjectTask(
+  projectId: string,
+  taskId: string,
+): Promise<ProjectTaskView> {
+  return invoke("halt_project_task", { projectId, taskId });
+}
+
 export function readProjectLog(projectId: string, maxLines: number): Promise<string> {
   return invoke("read_project_log", { projectId, maxLines });
 }
 
+export function readProjectTaskLog(
+  projectId: string,
+  taskId: string,
+  maxLines: number,
+): Promise<string> {
+  return invoke("read_project_task_log", { projectId, taskId, maxLines });
+}
+
 export function clearProjectLog(projectId: string): Promise<void> {
   return invoke("clear_log", { projectId });
+}
+
+export function clearProjectTaskLog(projectId: string, taskId: string): Promise<void> {
+  return invoke("clear_task_log", { projectId, taskId });
+}
+
+export function openProjectTaskPort(
+  projectId: string,
+  taskId: string,
+  port: number,
+): Promise<void> {
+  return invoke("open_task_port", { projectId, taskId, port });
+}
+
+export function getWorkspaceGroups(): Promise<WorkspaceGroupView[]> {
+  return invoke("get_workspace_groups");
+}
+
+export function saveWorkspaceGroup(group: WorkspaceGroup): Promise<WorkspaceGroupView> {
+  return invoke("save_workspace_group", { group });
+}
+
+export function deleteWorkspaceGroup(groupId: string): Promise<void> {
+  return invoke("remove_workspace_group", { groupId });
+}
+
+export function startWorkspaceGroup(groupId: string): Promise<WorkspaceGroupView> {
+  return invoke("launch_workspace_group", { groupId });
+}
+
+export function stopWorkspaceGroup(groupId: string): Promise<WorkspaceGroupView> {
+  return invoke("halt_workspace_group", { groupId });
 }
 
 export function openProjectFolder(projectId: string): Promise<void> {

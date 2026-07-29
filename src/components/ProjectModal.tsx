@@ -1,8 +1,16 @@
 import { type FormEvent, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, LoaderCircle, Trash2, X } from "lucide-react";
+import {
+  FolderOpen,
+  GripVertical,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
 import { detectProject } from "../lib/backend";
-import type { ProjectForm } from "../types";
+import type { ProjectForm, ProjectTask } from "../types";
 
 interface Props {
   project: ProjectForm;
@@ -12,10 +20,12 @@ interface Props {
 }
 
 export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
-  const [form, setForm] = useState(project);
+  const [form, setForm] = useState(() => withProjectTasks(project));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [detectingTasks, setDetectingTasks] = useState(false);
+  const [taskDetectionError, setTaskDetectionError] = useState<string | null>(null);
   const editing = Boolean(project.id);
 
   async function chooseFolder() {
@@ -24,8 +34,27 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
     try {
       const detected = await detectProject(path);
       setForm((current) => ({ ...current, ...detected }));
+      setTaskDetectionError(null);
     } catch {
       setForm((current) => ({ ...current, path }));
+    }
+  }
+
+  async function detectTasks() {
+    if (!form.path.trim()) return;
+    setDetectingTasks(true);
+    setTaskDetectionError(null);
+    try {
+      const detected = await detectProject(form.path);
+      setForm((current) => ({
+        ...current,
+        command: detected.command,
+        tasks: detected.tasks,
+      }));
+    } catch (error) {
+      setTaskDetectionError(errorMessage(error));
+    } finally {
+      setDetectingTasks(false);
     }
   }
 
@@ -33,10 +62,50 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
     event.preventDefault();
     setSaving(true);
     try {
-      await onSave(form);
+      await onSave({ ...form, command: form.tasks[0]?.command ?? "" });
     } finally {
       setSaving(false);
     }
+  }
+
+  function updateTask(index: number, patch: Partial<ProjectTask>) {
+    setForm((current) => {
+      const tasks = current.tasks.map((task, taskIndex) =>
+        taskIndex === index ? { ...task, ...patch } : task,
+      );
+      return {
+        ...current,
+        tasks,
+        command: tasks[0]?.command ?? "",
+      };
+    });
+  }
+
+  function addTask() {
+    setForm((current) => ({
+      ...current,
+      tasks: [
+        ...current.tasks,
+        {
+          id: crypto.randomUUID(),
+          name: `Task ${current.tasks.length + 1}`,
+          command: "",
+          autoStart: false,
+        },
+      ],
+    }));
+  }
+
+  function removeTask(index: number) {
+    setForm((current) => {
+      if (current.tasks.length === 1) return current;
+      const tasks = current.tasks.filter((_, taskIndex) => taskIndex !== index);
+      return {
+        ...current,
+        tasks,
+        command: tasks[0]?.command ?? "",
+      };
+    });
   }
 
   async function remove() {
@@ -96,22 +165,84 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
               </button>
             </span>
           </label>
-          <label className="field-label" htmlFor="project-command">
-            Start command
-            <span className="command-input">
-              <span>$</span>
-              <input
-                id="project-command"
-                value={form.command}
-                onChange={(event) => setForm({ ...form, command: event.target.value })}
-                placeholder="pnpm run dev"
-                required
-              />
-            </span>
-          </label>
+          <section className="project-task-editor">
+            <header>
+              <div>
+                <strong>Project tasks</strong>
+                <span>Choose which long-running tasks start with the project.</span>
+              </div>
+              <div className="project-task-editor-actions">
+                <button
+                  type="button"
+                  onClick={() => void detectTasks()}
+                  disabled={detectingTasks || !form.path.trim()}
+                >
+                  <RefreshCw className={detectingTasks ? "spin" : undefined} size={12} />
+                  Import scripts
+                </button>
+                <button type="button" onClick={addTask}>
+                  <Plus size={13} /> Add task
+                </button>
+              </div>
+            </header>
+            {taskDetectionError ? (
+              <p className="project-task-detection-error">{taskDetectionError}</p>
+            ) : null}
+            <div className="project-task-edit-list">
+              {form.tasks.map((task, index) => (
+                <article className="project-task-edit-row" key={task.id}>
+                  <GripVertical size={13} aria-hidden="true" />
+                  <div className="project-task-edit-fields">
+                    <div>
+                      <label>
+                        <span>{index === 0 ? "Primary task" : "Task name"}</span>
+                        <input
+                          value={task.name}
+                          onChange={(event) => updateTask(index, { name: event.target.value })}
+                          placeholder={index === 0 ? "Dev" : "Worker"}
+                          required
+                        />
+                      </label>
+                      <label className="task-autostart-toggle">
+                        <input
+                          type="checkbox"
+                          checked={task.autoStart}
+                          onChange={(event) =>
+                            updateTask(index, { autoStart: event.target.checked })
+                          }
+                        />
+                        <span>Run with project</span>
+                      </label>
+                    </div>
+                    <label>
+                      <span>Command</span>
+                      <span className="command-input">
+                        <span>$</span>
+                        <input
+                          value={task.command}
+                          onChange={(event) => updateTask(index, { command: event.target.value })}
+                          placeholder="pnpm run dev"
+                          required
+                        />
+                      </span>
+                    </label>
+                  </div>
+                  <button
+                    className="task-remove-button"
+                    type="button"
+                    onClick={() => removeTask(index)}
+                    disabled={form.tasks.length === 1}
+                    aria-label={`Remove ${task.name || "task"}`}
+                  >
+                    <X size={13} />
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
           <p className="form-hint">
-            Runbox follows this folder's Finder tag color. Commands use your login shell, so pnpm,
-            NVM and other Terminal tools remain available.
+            Commands use your login shell, so pnpm, NVM and other Terminal tools remain available.
+            The first task remains compatible with the existing `p project` command.
           </p>
           <footer className="modal-footer">
             {onDelete ? (
@@ -140,7 +271,26 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
   );
 }
 
+function withProjectTasks(project: ProjectForm): ProjectForm {
+  if (project.tasks.length > 0) return project;
+  return {
+    ...project,
+    tasks: [
+      {
+        id: "default",
+        name: "Dev",
+        command: project.command,
+        autoStart: true,
+      },
+    ],
+  };
+}
+
 function submitLabel(saving: boolean, editing: boolean): string {
   if (saving) return "Saving";
   return editing ? "Save changes" : "Add project";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

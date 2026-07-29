@@ -13,6 +13,8 @@ use std::{thread, time::Duration};
 struct Cli {
     /// Start a project by name. Example: p my-web
     project: Option<String>,
+    /// Start a specific task. Example: p my-web api
+    task: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -23,15 +25,33 @@ enum Commands {
     /// Show all configured projects
     List,
     /// Start a project
-    Start { project: String },
+    Start {
+        project: String,
+        task: Option<String>,
+    },
     /// Stop a project
-    Stop { project: String },
+    Stop {
+        project: String,
+        task: Option<String>,
+    },
     /// Print recent project output
     Logs {
         project: String,
+        task: Option<String>,
         /// Keep watching for new output
         #[arg(short, long)]
         follow: bool,
+    },
+    /// Show the configured tasks and health for a project
+    Tasks { project: String },
+    /// Show configured workspace groups
+    Workspaces,
+    /// Start or stop a workspace group
+    Workspace {
+        workspace: String,
+        /// Stop the workspace instead of starting it
+        #[arg(long)]
+        stop: bool,
     },
     /// Add a project from a local directory
     Add {
@@ -55,13 +75,32 @@ fn main() {
 }
 
 fn execute(cli: Cli) -> Result<(), String> {
-    match (cli.project, cli.command) {
-        (Some(project), None) => start(&project),
-        (None, None | Some(Commands::List)) => list(),
-        (None, Some(Commands::Start { project })) => start(&project),
-        (None, Some(Commands::Stop { project })) => stop(&project),
-        (None, Some(Commands::Logs { project, follow })) => logs(&project, follow),
+    match (cli.project, cli.task, cli.command) {
+        (Some(project), task, None) => start(&project, task.as_deref()),
+        (None, None, None | Some(Commands::List)) => list(),
+        (None, None, Some(Commands::Start { project, task })) => start(&project, task.as_deref()),
+        (None, None, Some(Commands::Stop { project, task })) => stop(&project, task.as_deref()),
         (
+            None,
+            None,
+            Some(Commands::Logs {
+                project,
+                task,
+                follow,
+            }),
+        ) => logs(&project, task.as_deref(), follow),
+        (None, None, Some(Commands::Tasks { project })) => tasks(&project),
+        (None, None, Some(Commands::Workspaces)) => workspaces(),
+        (
+            None,
+            None,
+            Some(Commands::Workspace {
+                workspace: group_query,
+                stop,
+            }),
+        ) => workspace(&group_query, stop),
+        (
+            None,
             None,
             Some(Commands::Add {
                 path,
@@ -69,12 +108,12 @@ fn execute(cli: Cli) -> Result<(), String> {
                 command,
             }),
         ) => add(&path, name, command),
-        (None, Some(Commands::Remove { project })) => remove(&project),
-        (None, Some(Commands::DataDir)) => {
+        (None, None, Some(Commands::Remove { project })) => remove(&project),
+        (None, None, Some(Commands::DataDir)) => {
             println!("{}", core::data_directory()?.display());
             Ok(())
         }
-        (Some(_), Some(_)) => {
+        (Some(_), _, Some(_)) | (None, Some(_), _) => {
             Err("Use either a project name or a subcommand, not both".to_string())
         }
     }
@@ -100,7 +139,15 @@ fn list() -> Result<(), String> {
     );
     for project in projects {
         let (dot, status) = if project.status == ProcessStatus::Running {
-            ("●".green().to_string(), "running".green().to_string())
+            (
+                "●".green().to_string(),
+                format!(
+                    "{}/{} running",
+                    project.running_task_count, project.task_count
+                )
+                .green()
+                .to_string(),
+            )
         } else {
             ("○".dimmed().to_string(), "stopped".dimmed().to_string())
         };
@@ -153,16 +200,34 @@ fn git_summary(status: Option<&GitStatus>) -> String {
     }
 }
 
-fn start(query: &str) -> Result<(), String> {
+fn start(query: &str, task_query: Option<&str>) -> Result<(), String> {
     let project = core::find_project(query)?;
+    if let Some(task_query) = task_query {
+        let view = core::start_project_task(&project.id, task_query)?;
+        println!(
+            "{} {} / {}  {}",
+            "●".green(),
+            project.name.bold(),
+            view.task.name.bold(),
+            format!("pid {}", view.pid.unwrap_or_default()).dimmed()
+        );
+        println!("  {} {}", "$".green(), view.task.command);
+        return Ok(());
+    }
     let view = core::start_project(&project.id)?;
     println!(
         "{} {}  {}",
         "●".green(),
         view.project.name.bold(),
-        format!("pid {}", view.pid.unwrap_or_default()).dimmed()
+        format!(
+            "{} of {} tasks running",
+            view.running_task_count, view.task_count
+        )
+        .dimmed()
     );
-    println!("  {} {}", "$".green(), view.project.command);
+    for task in view.project.tasks.iter().filter(|task| task.auto_start) {
+        println!("  {} {:<12} {}", "$".green(), task.name, task.command);
+    }
     println!(
         "  {}",
         format!("p logs {} -f", shell_word(&view.project.name)).dimmed()
@@ -170,18 +235,36 @@ fn start(query: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn stop(query: &str) -> Result<(), String> {
+fn stop(query: &str, task_query: Option<&str>) -> Result<(), String> {
     let project = core::find_project(query)?;
-    core::stop_project(&project.id)?;
-    println!("{} {} stopped", "○".yellow(), project.name.bold());
+    if let Some(task_query) = task_query {
+        let task = core::find_project_task(&project, task_query)?;
+        core::stop_project_task(&project.id, &task.id)?;
+        println!(
+            "{} {} / {} stopped",
+            "○".yellow(),
+            project.name.bold(),
+            task.name.bold()
+        );
+    } else {
+        core::stop_project(&project.id)?;
+        println!("{} {} stopped", "○".yellow(), project.name.bold());
+    }
     Ok(())
 }
 
-fn logs(query: &str, follow: bool) -> Result<(), String> {
+fn logs(query: &str, task_query: Option<&str>, follow: bool) -> Result<(), String> {
     let project = core::find_project(query)?;
+    let task = task_query
+        .map(|query| core::find_project_task(&project, query))
+        .transpose()?;
     let mut previous = String::new();
     loop {
-        let output = core::project_log(&project.id, 200)?;
+        let output = if let Some(task) = task.as_ref() {
+            core::project_task_log(&project.id, &task.id, 200)?
+        } else {
+            core::project_log(&project.id, 200)?
+        };
         if output != previous {
             if previous.is_empty() {
                 println!("{output}");
@@ -199,16 +282,102 @@ fn logs(query: &str, follow: bool) -> Result<(), String> {
     }
 }
 
+fn tasks(query: &str) -> Result<(), String> {
+    let project = core::find_project(query)?;
+    println!("{}  {}", project.name.bold(), project.path.dimmed());
+    for task in core::project_tasks(&project.id)? {
+        let (dot, state) = if task.status == ProcessStatus::Running {
+            ("●".green().to_string(), "running".green().to_string())
+        } else if task.exit_reason == Some(core::TaskExitReason::Crashed) {
+            ("!".red().bold().to_string(), "crashed".red().to_string())
+        } else {
+            ("○".dimmed().to_string(), "stopped".dimmed().to_string())
+        };
+        let health = if task.status == ProcessStatus::Running {
+            format!(
+                "{:.1}% CPU · {:.0} MB",
+                task.cpu_percent,
+                task.memory_bytes as f64 / 1_048_576.0
+            )
+        } else {
+            task.exit_code
+                .map(|code| format!("exit {code}"))
+                .unwrap_or_default()
+        };
+        println!(
+            "{} {:<16} {:<9} {:<22} {}",
+            dot,
+            truncate(&task.task.name, 16),
+            state,
+            health.dimmed(),
+            task.task.command.dimmed()
+        );
+        for port in task.ports {
+            println!("    {} {}", "↗".green(), port.url);
+        }
+    }
+    Ok(())
+}
+
+fn workspaces() -> Result<(), String> {
+    let groups = core::list_workspace_groups()?;
+    if groups.is_empty() {
+        println!("{}", "No workspace groups yet.".dimmed());
+        return Ok(());
+    }
+    for group in groups {
+        let state = format!("{}/{} running", group.running_task_count, group.tasks.len());
+        println!(
+            "{} {:<24} {}",
+            if group.running_task_count > 0 {
+                "●".green().to_string()
+            } else {
+                "○".dimmed().to_string()
+            },
+            group.group.name.bold(),
+            state.dimmed()
+        );
+    }
+    Ok(())
+}
+
+fn workspace(query: &str, stop: bool) -> Result<(), String> {
+    let group = if stop {
+        core::stop_workspace_group(query)?
+    } else {
+        core::start_workspace_group(query)?
+    };
+    println!(
+        "{} {}  {}/{} running",
+        if stop {
+            "○".yellow().to_string()
+        } else {
+            "●".green().to_string()
+        },
+        group.group.name.bold(),
+        group.running_task_count,
+        group.tasks.len()
+    );
+    Ok(())
+}
+
 fn add(path: &str, name: Option<String>, command: Option<String>) -> Result<(), String> {
     let draft = core::inspect_project(path)?;
     let updating = core::list_projects()?
         .iter()
         .any(|project| project.path == draft.path);
+    let mut tasks = draft.tasks;
+    if let Some(command) = command.as_ref()
+        && let Some(primary) = tasks.first_mut()
+    {
+        primary.command = command.clone();
+    }
     let project = core::upsert_project(Project {
         id: String::new(),
         name: name.unwrap_or(draft.name),
         path: draft.path,
         command: command.unwrap_or(draft.command),
+        tasks,
         favorite: false,
         sort_order: 0,
     })?;

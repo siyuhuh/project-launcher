@@ -13,6 +13,7 @@ export interface Project {
   name: string;
   path: string;
   command: string;
+  tasks: ProjectTask[];
   favorite: boolean;
   sortOrder: number;
 }
@@ -24,6 +25,60 @@ export interface ProjectView extends Project {
   stoppedAt: number | null;
   finderTagColor: FinderTagColor | null;
   gitStatus: GitStatus | null;
+  taskCount: number;
+  runningTaskCount: number;
+  crashedTaskCount: number;
+}
+
+export interface ProjectTask {
+  id: string;
+  name: string;
+  command: string;
+  autoStart: boolean;
+}
+
+export type TaskExitReason = "stopped" | "exited" | "crashed";
+
+export interface TaskPort {
+  host: string;
+  port: number;
+  url: string;
+}
+
+export interface ProjectTaskView extends ProjectTask {
+  status: ProcessStatus;
+  pid: number | null;
+  startedAt: number | null;
+  stoppedAt: number | null;
+  exitCode: number | null;
+  exitReason: TaskExitReason | null;
+  cpuPercent: number;
+  memoryBytes: number;
+  ports: TaskPort[];
+}
+
+export interface WorkspaceGroupEntry {
+  projectId: string;
+  taskId: string;
+}
+
+export interface WorkspaceGroup {
+  id: string;
+  name: string;
+  entries: WorkspaceGroupEntry[];
+}
+
+export interface WorkspaceGroupTaskView extends WorkspaceGroupEntry {
+  projectName: string;
+  taskName: string;
+  status: ProcessStatus;
+  exitReason: TaskExitReason | null;
+}
+
+export interface WorkspaceGroupView extends WorkspaceGroup {
+  tasks: WorkspaceGroupTaskView[];
+  runningTaskCount: number;
+  crashedTaskCount: number;
 }
 
 export interface GitStatus {
@@ -103,4 +158,5 @@ export interface ProjectDraft {
   name: string;
   path: string;
   command: string;
+  tasks: ProjectTask[];
 }

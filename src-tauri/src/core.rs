@@ -21,6 +21,11 @@ const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(3);
 const COMMIT_DIFF_LIMIT: usize = 96 * 1024;
 const HISTORY_PATCH_LIMIT: usize = 768 * 1024;
 const AI_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const DEFAULT_TASK_ID: &str = "default";
+
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Default)]
 struct FinderTagCache {
@@ -42,9 +47,21 @@ pub struct Project {
     pub path: String,
     pub command: String,
     #[serde(default)]
+    pub tasks: Vec<ProjectTask>,
+    #[serde(default)]
     pub favorite: bool,
     #[serde(default)]
     pub sort_order: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTask {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    #[serde(default = "default_true")]
+    pub auto_start: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -58,6 +75,9 @@ pub struct ProjectView {
     pub stopped_at: Option<u64>,
     pub finder_tag_color: Option<String>,
     pub git_status: Option<GitStatus>,
+    pub task_count: usize,
+    pub running_task_count: usize,
+    pub crashed_task_count: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -173,6 +193,7 @@ pub struct ProjectDraft {
     pub name: String,
     pub path: String,
     pub command: String,
+    pub tasks: Vec<ProjectTask>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -181,12 +202,88 @@ struct RuntimeInfo {
     pid: Option<u32>,
     started_at: Option<u64>,
     stopped_at: Option<u64>,
+    #[serde(default)]
+    exit_code: Option<i32>,
+    #[serde(default)]
+    exit_reason: Option<TaskExitReason>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskExitReason {
+    Stopped,
+    Exited,
+    Crashed,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPort {
+    pub host: String,
+    pub port: u16,
+    pub url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTaskView {
+    #[serde(flatten)]
+    pub task: ProjectTask,
+    pub status: ProcessStatus,
+    pub pid: Option<u32>,
+    pub started_at: Option<u64>,
+    pub stopped_at: Option<u64>,
+    pub exit_code: Option<i32>,
+    pub exit_reason: Option<TaskExitReason>,
+    pub cpu_percent: f64,
+    pub memory_bytes: u64,
+    pub ports: Vec<TaskPort>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGroupEntry {
+    pub project_id: String,
+    pub task_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGroup {
+    pub id: String,
+    pub name: String,
+    pub entries: Vec<WorkspaceGroupEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGroupTaskView {
+    pub project_id: String,
+    pub project_name: String,
+    pub task_id: String,
+    pub task_name: String,
+    pub status: ProcessStatus,
+    pub exit_reason: Option<TaskExitReason>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGroupView {
+    #[serde(flatten)]
+    pub group: WorkspaceGroup,
+    pub tasks: Vec<WorkspaceGroupTaskView>,
+    pub running_task_count: usize,
+    pub crashed_task_count: usize,
 }
 
 pub fn data_directory() -> Result<PathBuf, String> {
-    let base = dirs::config_dir()
-        .ok_or_else(|| "Could not locate the user config directory".to_string())?;
-    let directory = base.join(APP_DIRECTORY);
+    let directory = if let Some(override_path) = std::env::var_os("RUNBOX_DATA_DIR") {
+        PathBuf::from(override_path)
+    } else {
+        dirs::config_dir()
+            .ok_or_else(|| "Could not locate the user config directory".to_string())?
+            .join(APP_DIRECTORY)
+    };
     fs::create_dir_all(directory.join("logs")).map_err(display_error)?;
     fs::create_dir_all(directory.join("runtime")).map_err(display_error)?;
     Ok(directory)
@@ -194,6 +291,10 @@ pub fn data_directory() -> Result<PathBuf, String> {
 
 fn projects_file() -> Result<PathBuf, String> {
     Ok(data_directory()?.join("projects.json"))
+}
+
+fn groups_file() -> Result<PathBuf, String> {
+    Ok(data_directory()?.join("groups.json"))
 }
 
 fn runtime_file(project_id: &str) -> Result<PathBuf, String> {
@@ -206,6 +307,30 @@ fn log_file(project_id: &str) -> Result<PathBuf, String> {
     Ok(data_directory()?
         .join("logs")
         .join(format!("{project_id}.log")))
+}
+
+fn task_runtime_file(project_id: &str, task_id: &str) -> Result<PathBuf, String> {
+    if task_id == DEFAULT_TASK_ID {
+        return runtime_file(project_id);
+    }
+    Ok(data_directory()?
+        .join("runtime")
+        .join(format!("{project_id}--{task_id}.json")))
+}
+
+fn task_log_file(project_id: &str, task_id: &str) -> Result<PathBuf, String> {
+    if task_id == DEFAULT_TASK_ID {
+        return log_file(project_id);
+    }
+    Ok(data_directory()?
+        .join("logs")
+        .join(format!("{project_id}--{task_id}.log")))
+}
+
+fn task_exit_file(project_id: &str, task_id: &str) -> Result<PathBuf, String> {
+    Ok(data_directory()?
+        .join("runtime")
+        .join(format!("{project_id}--{task_id}.exit")))
 }
 
 pub fn list_projects() -> Result<Vec<Project>, String> {
@@ -229,6 +354,9 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
             project.sort_order = index as i64 * 100;
             changed = true;
         }
+        if migrate_project_tasks(project) {
+            changed = true;
+        }
     }
 
     if changed {
@@ -247,47 +375,18 @@ pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
     });
 
-    projects
-        .into_iter()
-        .map(|project| {
-            let mut runtime = read_runtime(&project.id)?;
-            let running = runtime.pid.is_some_and(process_is_running);
-
-            if runtime.pid.is_some() && !running {
-                runtime.pid = None;
-                runtime.stopped_at = Some(now());
-                write_runtime(&project.id, &runtime)?;
-            }
-            let finder_tag_color = finder_tag_color(&project.path);
-            let git_status = git_status(&project.path);
-
-            Ok(ProjectView {
-                project,
-                status: if running {
-                    ProcessStatus::Running
-                } else {
-                    ProcessStatus::Stopped
-                },
-                pid: runtime.pid,
-                started_at: runtime.started_at,
-                stopped_at: runtime.stopped_at,
-                finder_tag_color,
-                git_status,
-            })
-        })
-        .collect()
+    projects.into_iter().map(project_view).collect()
 }
 
 pub fn upsert_project(mut project: Project) -> Result<Project, String> {
     project.name = project.name.trim().to_string();
     project.command = project.command.trim().to_string();
     project.path = normalize_path(&project.path)?;
+    migrate_project_tasks(&mut project);
+    normalize_project_tasks(&mut project)?;
 
     if project.name.is_empty() {
         return Err("Project name is required".to_string());
-    }
-    if project.command.is_empty() {
-        return Err("Start command is required".to_string());
     }
     if !Path::new(&project.path).is_dir() {
         return Err(format!(
@@ -312,13 +411,147 @@ pub fn upsert_project(mut project: Project) -> Result<Project, String> {
                 + 100;
         }
     }
+    let removed_tasks: Vec<ProjectTask> = projects
+        .iter()
+        .find(|item| item.id == project.id)
+        .map(|existing| {
+            existing
+                .tasks
+                .iter()
+                .filter(|task| !project.tasks.iter().any(|next| next.id == task.id))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    for task in &removed_tasks {
+        if task_is_running(&project.id, &task.id)? {
+            return Err(format!(
+                "Stop {} before removing it from this project",
+                task.name
+            ));
+        }
+    }
     if let Some(existing) = projects.iter_mut().find(|item| item.id == project.id) {
         *existing = project.clone();
     } else {
         projects.push(project.clone());
     }
     write_projects(&projects)?;
+    for task in removed_tasks {
+        let _ = fs::remove_file(task_runtime_file(&project.id, &task.id)?);
+        let _ = fs::remove_file(task_log_file(&project.id, &task.id)?);
+        let _ = fs::remove_file(task_exit_file(&project.id, &task.id)?);
+    }
+    prune_workspace_groups()?;
     Ok(project)
+}
+
+fn project_view(project: Project) -> Result<ProjectView, String> {
+    let mut runtimes = Vec::with_capacity(project.tasks.len());
+    for task in &project.tasks {
+        runtimes.push(read_task_runtime(&project.id, &task.id)?);
+    }
+
+    let running_indexes: Vec<usize> = runtimes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, runtime)| runtime.pid.map(|_| index))
+        .collect();
+    let running = !running_indexes.is_empty();
+    let pid = running_indexes
+        .first()
+        .and_then(|index| runtimes[*index].pid);
+    let started_at = if running {
+        running_indexes
+            .iter()
+            .filter_map(|index| runtimes[*index].started_at)
+            .min()
+    } else {
+        runtimes
+            .iter()
+            .filter_map(|runtime| runtime.started_at)
+            .max()
+    };
+    let stopped_at = runtimes
+        .iter()
+        .filter_map(|runtime| runtime.stopped_at)
+        .max();
+    let crashed_task_count = runtimes
+        .iter()
+        .filter(|runtime| runtime.exit_reason == Some(TaskExitReason::Crashed))
+        .count();
+    let task_count = project.tasks.len();
+
+    Ok(ProjectView {
+        finder_tag_color: finder_tag_color(&project.path),
+        git_status: git_status(&project.path),
+        project,
+        status: if running {
+            ProcessStatus::Running
+        } else {
+            ProcessStatus::Stopped
+        },
+        pid,
+        started_at,
+        stopped_at,
+        task_count,
+        running_task_count: running_indexes.len(),
+        crashed_task_count,
+    })
+}
+
+fn migrate_project_tasks(project: &mut Project) -> bool {
+    let mut changed = false;
+    if project.tasks.is_empty() && !project.command.trim().is_empty() {
+        project.tasks.push(ProjectTask {
+            id: DEFAULT_TASK_ID.to_string(),
+            name: "Dev".to_string(),
+            command: project.command.trim().to_string(),
+            auto_start: true,
+        });
+        changed = true;
+    }
+    if let Some(primary) = project.tasks.first()
+        && project.command != primary.command
+    {
+        project.command = primary.command.clone();
+        changed = true;
+    }
+    changed
+}
+
+fn normalize_project_tasks(project: &mut Project) -> Result<(), String> {
+    if project.tasks.is_empty() {
+        return Err("Add at least one project task".to_string());
+    }
+
+    let mut ids = HashSet::new();
+    let mut names = HashSet::new();
+    for (index, task) in project.tasks.iter_mut().enumerate() {
+        task.name = task.name.trim().to_string();
+        task.command = task.command.trim().to_string();
+        if task.name.is_empty() {
+            return Err(format!("Task {} needs a name", index + 1));
+        }
+        if task.command.is_empty() {
+            return Err(format!("Task “{}” needs a command", task.name));
+        }
+
+        if task.id.trim().is_empty()
+            || !task.id.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_')
+            })
+            || ids.contains(&task.id)
+        {
+            task.id = Uuid::new_v4().to_string();
+        }
+        ids.insert(task.id.clone());
+        if !names.insert(task.name.to_lowercase()) {
+            return Err(format!("Task name “{}” is used more than once", task.name));
+        }
+    }
+    project.command = project.tasks[0].command.clone();
+    Ok(())
 }
 
 pub fn set_project_favorite(project_id: &str, favorite: bool) -> Result<Project, String> {
@@ -372,14 +605,21 @@ pub fn delete_project(project_id: &str) -> Result<(), String> {
     }
 
     let mut projects = list_projects()?;
+    let project = projects
+        .iter()
+        .find(|project| project.id == project_id)
+        .cloned()
+        .ok_or_else(|| "Project not found".to_string())?;
     let original_len = projects.len();
     projects.retain(|project| project.id != project_id);
-    if projects.len() == original_len {
-        return Err("Project not found".to_string());
-    }
+    debug_assert_eq!(projects.len() + 1, original_len);
     write_projects(&projects)?;
-    let _ = fs::remove_file(runtime_file(project_id)?);
-    let _ = fs::remove_file(log_file(project_id)?);
+    for task in project.tasks {
+        let _ = fs::remove_file(task_runtime_file(project_id, &task.id)?);
+        let _ = fs::remove_file(task_log_file(project_id, &task.id)?);
+        let _ = fs::remove_file(task_exit_file(project_id, &task.id)?);
+    }
+    prune_workspace_groups()?;
     Ok(())
 }
 
@@ -407,9 +647,6 @@ pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
             .unwrap_or(&fallback_name)
             .to_string();
         let scripts = package.get("scripts").and_then(Value::as_object);
-        let script = ["dev", "start", "serve"]
-            .into_iter()
-            .find(|candidate| scripts.is_some_and(|items| items.contains_key(*candidate)));
 
         let package_manager = if directory.join("pnpm-lock.yaml").exists() {
             "pnpm"
@@ -421,18 +658,60 @@ pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
             "npm"
         };
 
-        let command = match (package_manager, script) {
-            ("pnpm", Some(script)) => format!("pnpm run {script}"),
-            ("bun", Some(script)) => format!("bun run {script}"),
-            ("yarn", Some(script)) => format!("yarn {script}"),
-            ("npm", Some(script)) => format!("npm run {script}"),
-            _ => "pnpm run dev".to_string(),
-        };
+        let mut script_names: Vec<&str> = scripts
+            .into_iter()
+            .flat_map(|items| items.keys().map(String::as_str))
+            .filter(|script| {
+                let lifecycle_target = script
+                    .strip_prefix("pre")
+                    .or_else(|| script.strip_prefix("post"));
+                !script.trim().is_empty()
+                    && !lifecycle_target.is_some_and(|target| {
+                        scripts.is_some_and(|items| items.contains_key(target))
+                    })
+            })
+            .collect();
+        script_names.sort_by(|left, right| {
+            script_priority(left)
+                .cmp(&script_priority(right))
+                .then_with(|| left.cmp(right))
+        });
+        script_names.truncate(16);
+
+        let mut tasks: Vec<ProjectTask> = script_names
+            .into_iter()
+            .enumerate()
+            .map(|(index, script)| ProjectTask {
+                id: if index == 0 {
+                    DEFAULT_TASK_ID.to_string()
+                } else {
+                    format!("{}-{index}", task_id_from_name(script))
+                },
+                name: task_display_name(script),
+                command: package_script_command(package_manager, script),
+                auto_start: auto_start_script(script),
+            })
+            .collect();
+        if tasks.is_empty() {
+            tasks.push(ProjectTask {
+                id: DEFAULT_TASK_ID.to_string(),
+                name: "Dev".to_string(),
+                command: package_script_command(package_manager, "dev"),
+                auto_start: true,
+            });
+        }
+        if !tasks.iter().any(|task| task.auto_start)
+            && let Some(primary) = tasks.first_mut()
+        {
+            primary.auto_start = true;
+        }
+        let command = tasks[0].command.clone();
 
         return Ok(ProjectDraft {
             name,
             path: normalized,
             command,
+            tasks,
         });
     }
 
@@ -452,20 +731,142 @@ pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
         ""
     };
 
+    let task = ProjectTask {
+        id: DEFAULT_TASK_ID.to_string(),
+        name: "Dev".to_string(),
+        command: command.to_string(),
+        auto_start: true,
+    };
     Ok(ProjectDraft {
         name: fallback_name,
         path: normalized,
         command: command.to_string(),
+        tasks: vec![task],
     })
+}
+
+fn script_priority(script: &str) -> usize {
+    match script {
+        "dev" => 0,
+        "start" => 1,
+        "serve" => 2,
+        "web" | "frontend" => 3,
+        "api" | "server" => 4,
+        "worker" => 5,
+        "preview" => 6,
+        "test" => 7,
+        "lint" => 8,
+        "build" => 9,
+        _ if script.starts_with("dev:") => 10,
+        _ => 20,
+    }
+}
+
+fn auto_start_script(script: &str) -> bool {
+    matches!(
+        script,
+        "dev" | "start" | "serve" | "web" | "frontend" | "api" | "server" | "worker"
+    ) || script.starts_with("dev:")
+}
+
+fn package_script_command(package_manager: &str, script: &str) -> String {
+    match package_manager {
+        "pnpm" => format!("pnpm run {script}"),
+        "bun" => format!("bun run {script}"),
+        "yarn" => format!("yarn {script}"),
+        _ => format!("npm run {script}"),
+    }
+}
+
+fn task_display_name(script: &str) -> String {
+    script
+        .split([':', '-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| match part.to_ascii_lowercase().as_str() {
+            "api" => "API".to_string(),
+            "ui" => "UI".to_string(),
+            "db" => "DB".to_string(),
+            _ => {
+                let mut characters = part.chars();
+                match characters.next() {
+                    Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+                    None => String::new(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+fn task_id_from_name(name: &str) -> String {
+    let slug = name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        slug.to_string()
+    }
 }
 
 pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
     let project = find_project(project_id)?;
-    if project_status(&project.id)? == ProcessStatus::Running {
+    let mut selected: Vec<ProjectTask> = project
+        .tasks
+        .iter()
+        .filter(|task| task.auto_start)
+        .cloned()
+        .collect();
+    if selected.is_empty()
+        && let Some(primary) = project.tasks.first()
+    {
+        selected.push(primary.clone());
+    }
+
+    let mut started_task_ids: Vec<String> = Vec::new();
+    for task in selected {
+        if task_is_running(&project.id, &task.id)? {
+            continue;
+        }
+        if let Err(error) = start_task_inner(&project, &task) {
+            for task_id in &started_task_ids {
+                let _ = stop_task_inner(&project, task_id);
+            }
+            return Err(error);
+        }
+        started_task_ids.push(task.id);
+    }
+    if started_task_ids.is_empty() {
         return Err(format!("{} is already running", project.name));
     }
 
-    let log_path = log_file(&project.id)?;
+    project_view(project)
+}
+
+pub fn start_project_task(project_id: &str, task_query: &str) -> Result<ProjectTaskView, String> {
+    let project = find_project(project_id)?;
+    let task = find_project_task(&project, task_query)?;
+    start_task_inner(&project, &task)?;
+    task_view(&project, &task, true)
+}
+
+fn start_task_inner(project: &Project, task: &ProjectTask) -> Result<(), String> {
+    if task_is_running(&project.id, &task.id)? {
+        return Err(format!(
+            "{} / {} is already running",
+            project.name, task.name
+        ));
+    }
+
+    let log_path = task_log_file(&project.id, &task.id)?;
     let mut log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -473,21 +874,26 @@ pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
         .map_err(display_error)?;
     writeln!(
         log,
-        "\n── {} · {} ──\n$ {}\n",
+        "\n── {} / {} · {} ──\n$ {}\n",
         project.name,
+        task.name,
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-        project.command
+        task.command
     )
     .map_err(display_error)?;
     let stderr = log.try_clone().map_err(display_error)?;
 
-    let mut command = shell_command(&project.command);
+    let exit_path = task_exit_file(&project.id, &task.id)?;
+    let _ = fs::remove_file(&exit_path);
+    let mut command = task_shell_command(&task.command);
     command
         .current_dir(&project.path)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(stderr))
         .env("RUNBOX_PROJECT", &project.name)
+        .env("RUNBOX_TASK", &task.name)
+        .env("RUNBOX_EXIT_FILE", exit_path.to_string_lossy().as_ref())
         .env("TERM", "dumb")
         .env("NO_COLOR", "1");
 
@@ -499,63 +905,127 @@ pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
 
     let child = command.spawn().map_err(|error| {
         format!(
-            "Could not start {} from {}: {error}",
-            project.command, project.path
+            "Could not start {} / {} from {}: {error}",
+            project.name, task.name, project.path
         )
     })?;
     let started_at = now();
-    let finder_tag_color = finder_tag_color(&project.path);
-    let git_status = git_status(&project.path);
-    write_runtime(
+    write_task_runtime(
         &project.id,
+        &task.id,
         &RuntimeInfo {
             pid: Some(child.id()),
             started_at: Some(started_at),
             stopped_at: None,
+            exit_code: None,
+            exit_reason: None,
         },
     )?;
     drop(child);
-
-    Ok(ProjectView {
-        project,
-        status: ProcessStatus::Running,
-        pid: read_runtime(project_id)?.pid,
-        started_at: Some(started_at),
-        stopped_at: None,
-        finder_tag_color,
-        git_status,
-    })
+    Ok(())
 }
 
 pub fn stop_project(project_id: &str) -> Result<ProjectView, String> {
     let project = find_project(project_id)?;
-    let mut runtime = read_runtime(&project.id)?;
+    let mut stopped_any = false;
+    for task in &project.tasks {
+        if task_is_running(&project.id, &task.id)? {
+            stop_task_inner(&project, &task.id)?;
+            stopped_any = true;
+        }
+    }
+    if !stopped_any {
+        return Err(format!("{} is not running", project.name));
+    }
+    project_view(project)
+}
 
-    if let Some(pid) = runtime.pid
-        && process_is_running(pid)
-    {
+pub fn stop_project_task(project_id: &str, task_query: &str) -> Result<ProjectTaskView, String> {
+    let project = find_project(project_id)?;
+    let task = find_project_task(&project, task_query)?;
+    stop_task_inner(&project, &task.id)?;
+    task_view(&project, &task, true)
+}
+
+fn stop_task_inner(project: &Project, task_id: &str) -> Result<(), String> {
+    let mut runtime = read_task_runtime(&project.id, task_id)?;
+    let Some(pid) = runtime.pid else {
+        return Err("Task is not running".to_string());
+    };
+    if process_is_running(pid) {
         terminate_process_group(pid)?;
     }
-
     runtime.pid = None;
     runtime.stopped_at = Some(now());
-    write_runtime(&project.id, &runtime)?;
-    let finder_tag_color = finder_tag_color(&project.path);
-    let git_status = git_status(&project.path);
+    runtime.exit_code = None;
+    runtime.exit_reason = Some(TaskExitReason::Stopped);
+    let _ = fs::remove_file(task_exit_file(&project.id, task_id)?);
+    write_task_runtime(&project.id, task_id, &runtime)
+}
 
-    Ok(ProjectView {
-        project,
-        status: ProcessStatus::Stopped,
-        pid: None,
+pub fn project_tasks(project_id: &str) -> Result<Vec<ProjectTaskView>, String> {
+    let project = find_project(project_id)?;
+    project
+        .tasks
+        .iter()
+        .map(|task| task_view(&project, task, true))
+        .collect()
+}
+
+fn task_view(
+    project: &Project,
+    task: &ProjectTask,
+    include_health: bool,
+) -> Result<ProjectTaskView, String> {
+    let runtime = read_task_runtime(&project.id, &task.id)?;
+    let (cpu_percent, memory_bytes, process_ids) = if include_health {
+        runtime
+            .pid
+            .map(process_group_metrics)
+            .unwrap_or((0.0, 0, Vec::new()))
+    } else {
+        (0.0, 0, Vec::new())
+    };
+    let ports = if include_health {
+        listening_ports(&process_ids)
+    } else {
+        Vec::new()
+    };
+    Ok(ProjectTaskView {
+        task: task.clone(),
+        status: if runtime.pid.is_some() {
+            ProcessStatus::Running
+        } else {
+            ProcessStatus::Stopped
+        },
+        pid: runtime.pid,
         started_at: runtime.started_at,
         stopped_at: runtime.stopped_at,
-        finder_tag_color,
-        git_status,
+        exit_code: runtime.exit_code,
+        exit_reason: runtime.exit_reason,
+        cpu_percent,
+        memory_bytes,
+        ports,
     })
 }
 
 pub fn project_log(project_id: &str, max_lines: usize) -> Result<String, String> {
-    let path = log_file(project_id)?;
+    let project = find_project(project_id)?;
+    let task = project
+        .tasks
+        .first()
+        .ok_or_else(|| "Project has no tasks".to_string())?;
+    project_task_log(project_id, &task.id, max_lines)
+}
+
+pub fn project_task_log(
+    project_id: &str,
+    task_query: &str,
+    max_lines: usize,
+) -> Result<String, String> {
+    let project = find_project(project_id)?;
+    let task = find_project_task(&project, task_query)?;
+    let path = task_log_file(project_id, &task.id)?;
     if !path.exists() {
         return Ok(String::new());
     }
@@ -574,7 +1044,256 @@ pub fn project_log(project_id: &str, max_lines: usize) -> Result<String, String>
 }
 
 pub fn clear_project_log(project_id: &str) -> Result<(), String> {
-    File::create(log_file(project_id)?).map_err(display_error)?;
+    let project = find_project(project_id)?;
+    let task = project
+        .tasks
+        .first()
+        .ok_or_else(|| "Project has no tasks".to_string())?;
+    clear_project_task_log(project_id, &task.id)
+}
+
+pub fn clear_project_task_log(project_id: &str, task_query: &str) -> Result<(), String> {
+    let project = find_project(project_id)?;
+    let task = find_project_task(&project, task_query)?;
+    File::create(task_log_file(project_id, &task.id)?).map_err(display_error)?;
+    Ok(())
+}
+
+pub fn open_project_task_port(project_id: &str, task_query: &str, port: u16) -> Result<(), String> {
+    let project = find_project(project_id)?;
+    let task = find_project_task(&project, task_query)?;
+    let view = task_view(&project, &task, true)?;
+    let address = view
+        .ports
+        .into_iter()
+        .find(|item| item.port == port)
+        .ok_or_else(|| format!("Port {port} is no longer listening"))?;
+    open_path(&address.url)
+}
+
+pub fn list_workspace_groups() -> Result<Vec<WorkspaceGroupView>, String> {
+    read_workspace_groups()?
+        .into_iter()
+        .map(workspace_group_view)
+        .collect()
+}
+
+pub fn upsert_workspace_group(mut group: WorkspaceGroup) -> Result<WorkspaceGroupView, String> {
+    group.name = group.name.trim().to_string();
+    if group.name.is_empty() {
+        return Err("Workspace name is required".to_string());
+    }
+    if group.entries.is_empty() {
+        return Err("Select at least one project task".to_string());
+    }
+
+    let projects = list_projects()?;
+    let mut seen = HashSet::new();
+    for entry in &group.entries {
+        if !seen.insert((entry.project_id.clone(), entry.task_id.clone())) {
+            return Err("A task can only appear once in a workspace".to_string());
+        }
+        let project = projects
+            .iter()
+            .find(|project| project.id == entry.project_id)
+            .ok_or_else(|| "A selected project no longer exists".to_string())?;
+        if !project.tasks.iter().any(|task| task.id == entry.task_id) {
+            return Err(format!(
+                "A selected task in {} no longer exists",
+                project.name
+            ));
+        }
+    }
+
+    let mut groups = read_workspace_groups()?;
+    if groups
+        .iter()
+        .any(|existing| existing.id != group.id && existing.name.eq_ignore_ascii_case(&group.name))
+    {
+        return Err(format!("A workspace named “{}” already exists", group.name));
+    }
+    if group.id.trim().is_empty() {
+        group.id = Uuid::new_v4().to_string();
+    }
+    if let Some(existing) = groups.iter_mut().find(|item| item.id == group.id) {
+        *existing = group.clone();
+    } else {
+        groups.push(group.clone());
+    }
+    write_workspace_groups(&groups)?;
+    workspace_group_view(group)
+}
+
+pub fn delete_workspace_group(group_id: &str) -> Result<(), String> {
+    let mut groups = read_workspace_groups()?;
+    let original_len = groups.len();
+    groups.retain(|group| group.id != group_id);
+    if groups.len() == original_len {
+        return Err("Workspace not found".to_string());
+    }
+    write_workspace_groups(&groups)
+}
+
+pub fn start_workspace_group(group_query: &str) -> Result<WorkspaceGroupView, String> {
+    let group = find_workspace_group(group_query)?;
+    let projects = list_projects()?;
+    let mut started: Vec<(String, String)> = Vec::new();
+
+    for entry in &group.entries {
+        let project = projects
+            .iter()
+            .find(|project| project.id == entry.project_id)
+            .ok_or_else(|| "A workspace project no longer exists".to_string())?;
+        let task = find_project_task(project, &entry.task_id)?;
+        if task_is_running(&project.id, &task.id)? {
+            continue;
+        }
+        if let Err(error) = start_task_inner(project, &task) {
+            for (project_id, task_id) in started {
+                if let Ok(started_project) = find_project(&project_id) {
+                    let _ = stop_task_inner(&started_project, &task_id);
+                }
+            }
+            return Err(error);
+        }
+        started.push((project.id.clone(), task.id));
+    }
+    workspace_group_view(group)
+}
+
+pub fn stop_workspace_group(group_query: &str) -> Result<WorkspaceGroupView, String> {
+    let group = find_workspace_group(group_query)?;
+    let projects = list_projects()?;
+    for entry in &group.entries {
+        let Some(project) = projects
+            .iter()
+            .find(|project| project.id == entry.project_id)
+        else {
+            continue;
+        };
+        if task_is_running(&project.id, &entry.task_id)? {
+            stop_task_inner(project, &entry.task_id)?;
+        }
+    }
+    workspace_group_view(group)
+}
+
+pub fn find_workspace_group(query: &str) -> Result<WorkspaceGroup, String> {
+    let groups = read_workspace_groups()?;
+    if let Some(group) = groups.iter().find(|group| group.id == query) {
+        return Ok(group.clone());
+    }
+    let query = query.to_lowercase();
+    let exact: Vec<_> = groups
+        .iter()
+        .filter(|group| group.name.to_lowercase() == query)
+        .cloned()
+        .collect();
+    if exact.len() == 1 {
+        return Ok(exact[0].clone());
+    }
+    let matches: Vec<_> = groups
+        .into_iter()
+        .filter(|group| group.name.to_lowercase().contains(&query))
+        .collect();
+    match matches.as_slice() {
+        [group] => Ok(group.clone()),
+        [] => Err(format!("No workspace matches “{query}”")),
+        _ => Err(format!(
+            "“{query}” matches multiple workspaces: {}",
+            matches
+                .iter()
+                .map(|group| group.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+fn workspace_group_view(group: WorkspaceGroup) -> Result<WorkspaceGroupView, String> {
+    let projects = list_projects()?;
+    let mut tasks = Vec::new();
+    for entry in &group.entries {
+        let Some(project) = projects
+            .iter()
+            .find(|project| project.id == entry.project_id)
+        else {
+            continue;
+        };
+        let Some(task) = project.tasks.iter().find(|task| task.id == entry.task_id) else {
+            continue;
+        };
+        let runtime = read_task_runtime(&project.id, &task.id)?;
+        tasks.push(WorkspaceGroupTaskView {
+            project_id: project.id.clone(),
+            project_name: project.name.clone(),
+            task_id: task.id.clone(),
+            task_name: task.name.clone(),
+            status: if runtime.pid.is_some() {
+                ProcessStatus::Running
+            } else {
+                ProcessStatus::Stopped
+            },
+            exit_reason: runtime.exit_reason,
+        });
+    }
+    let running_task_count = tasks
+        .iter()
+        .filter(|task| task.status == ProcessStatus::Running)
+        .count();
+    let crashed_task_count = tasks
+        .iter()
+        .filter(|task| task.exit_reason == Some(TaskExitReason::Crashed))
+        .count();
+    Ok(WorkspaceGroupView {
+        group,
+        tasks,
+        running_task_count,
+        crashed_task_count,
+    })
+}
+
+fn read_workspace_groups() -> Result<Vec<WorkspaceGroup>, String> {
+    let path = groups_file()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(path).map_err(display_error)?;
+    if raw.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(&raw).map_err(display_error)
+}
+
+fn write_workspace_groups(groups: &[WorkspaceGroup]) -> Result<(), String> {
+    let contents = serde_json::to_string_pretty(groups).map_err(display_error)?;
+    atomic_write(&groups_file()?, contents.as_bytes())
+}
+
+fn prune_workspace_groups() -> Result<(), String> {
+    let path = groups_file()?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let projects = list_projects()?;
+    let mut groups = read_workspace_groups()?;
+    let original_group_count = groups.len();
+    let mut changed = false;
+    for group in &mut groups {
+        let original_len = group.entries.len();
+        group.entries.retain(|entry| {
+            projects.iter().any(|project| {
+                project.id == entry.project_id
+                    && project.tasks.iter().any(|task| task.id == entry.task_id)
+            })
+        });
+        changed |= original_len != group.entries.len();
+    }
+    groups.retain(|group| !group.entries.is_empty());
+    changed |= groups.len() != original_group_count;
+    if changed {
+        write_workspace_groups(&groups)?;
+    }
     Ok(())
 }
 
@@ -978,13 +1697,49 @@ pub fn find_project(query: &str) -> Result<Project, String> {
     }
 }
 
+pub fn find_project_task(project: &Project, query: &str) -> Result<ProjectTask, String> {
+    if let Some(task) = project.tasks.iter().find(|task| task.id == query) {
+        return Ok(task.clone());
+    }
+    let query = query.to_lowercase();
+    let exact: Vec<_> = project
+        .tasks
+        .iter()
+        .filter(|task| task.name.to_lowercase() == query)
+        .cloned()
+        .collect();
+    if exact.len() == 1 {
+        return Ok(exact[0].clone());
+    }
+    let matches: Vec<_> = project
+        .tasks
+        .iter()
+        .filter(|task| task.name.to_lowercase().contains(&query))
+        .cloned()
+        .collect();
+    match matches.as_slice() {
+        [task] => Ok(task.clone()),
+        [] => Err(format!("No task in {} matches “{query}”", project.name)),
+        _ => Err(format!(
+            "“{query}” matches multiple tasks in {}: {}",
+            project.name,
+            matches
+                .iter()
+                .map(|task| task.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
 fn project_status(project_id: &str) -> Result<ProcessStatus, String> {
-    let runtime = read_runtime(project_id)?;
-    Ok(if runtime.pid.is_some_and(process_is_running) {
-        ProcessStatus::Running
-    } else {
-        ProcessStatus::Stopped
-    })
+    let project = find_project(project_id)?;
+    for task in &project.tasks {
+        if task_is_running(project_id, &task.id)? {
+            return Ok(ProcessStatus::Running);
+        }
+    }
+    Ok(ProcessStatus::Stopped)
 }
 
 fn write_projects(projects: &[Project]) -> Result<(), String> {
@@ -992,18 +1747,67 @@ fn write_projects(projects: &[Project]) -> Result<(), String> {
     atomic_write(&projects_file()?, contents.as_bytes())
 }
 
-fn read_runtime(project_id: &str) -> Result<RuntimeInfo, String> {
-    let path = runtime_file(project_id)?;
+fn read_task_runtime(project_id: &str, task_id: &str) -> Result<RuntimeInfo, String> {
+    let path = task_runtime_file(project_id, task_id)?;
     if !path.exists() {
         return Ok(RuntimeInfo::default());
     }
     let raw = fs::read_to_string(path).map_err(display_error)?;
-    serde_json::from_str(&raw).map_err(display_error)
+    let mut runtime: RuntimeInfo = serde_json::from_str(&raw).map_err(display_error)?;
+    let mut changed = false;
+    if let Some(pid) = runtime.pid
+        && !process_is_running(pid)
+    {
+        runtime.pid = None;
+        runtime.stopped_at = Some(now());
+        runtime.exit_code = read_task_exit_code(project_id, task_id);
+        runtime.exit_reason = Some(if runtime.exit_code == Some(0) {
+            TaskExitReason::Exited
+        } else {
+            TaskExitReason::Crashed
+        });
+        changed = true;
+    } else if runtime.pid.is_none()
+        && runtime.exit_reason == Some(TaskExitReason::Crashed)
+        && runtime.exit_code.is_none()
+        && let Some(exit_code) = read_task_exit_code(project_id, task_id)
+    {
+        runtime.exit_code = Some(exit_code);
+        runtime.exit_reason = Some(if exit_code == 0 {
+            TaskExitReason::Exited
+        } else {
+            TaskExitReason::Crashed
+        });
+        changed = true;
+    }
+    if changed {
+        write_task_runtime(project_id, task_id, &runtime)?;
+    }
+    Ok(runtime)
 }
 
-fn write_runtime(project_id: &str, runtime: &RuntimeInfo) -> Result<(), String> {
+fn write_task_runtime(
+    project_id: &str,
+    task_id: &str,
+    runtime: &RuntimeInfo,
+) -> Result<(), String> {
     let contents = serde_json::to_string(runtime).map_err(display_error)?;
-    atomic_write(&runtime_file(project_id)?, contents.as_bytes())
+    atomic_write(
+        &task_runtime_file(project_id, task_id)?,
+        contents.as_bytes(),
+    )
+}
+
+fn read_task_exit_code(project_id: &str, task_id: &str) -> Option<i32> {
+    fs::read_to_string(task_exit_file(project_id, task_id).ok()?)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+fn task_is_running(project_id: &str, task_id: &str) -> Result<bool, String> {
+    Ok(read_task_runtime(project_id, task_id)?.pid.is_some())
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -1051,6 +1855,24 @@ fn shell_command(command: &str) -> Command {
     }
 }
 
+fn task_shell_command(command: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let wrapped = format!(
+            "{command}; $runboxStatus = $LASTEXITCODE; Set-Content -NoNewline -Path $env:RUNBOX_EXIT_FILE -Value $runboxStatus; exit $runboxStatus"
+        );
+        shell_command(&wrapped)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let wrapped = format!(
+            "set +e\n(\n{command}\n)\nrunbox_status=$?\nprintf '%s' \"$runbox_status\" > \"$RUNBOX_EXIT_FILE\"\nexit \"$runbox_status\""
+        );
+        shell_command(&wrapped)
+    }
+}
+
 fn process_is_running(pid: u32) -> bool {
     #[cfg(unix)]
     {
@@ -1065,6 +1887,105 @@ fn process_is_running(pid: u32) -> bool {
             .output()
             .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
             .unwrap_or(false)
+    }
+}
+
+fn process_group_metrics(pid: u32) -> (f64, u64, Vec<u32>) {
+    #[cfg(unix)]
+    {
+        let Ok(output) = Command::new("ps")
+            .args(["-axo", "pgid=,pid=,%cpu=,rss="])
+            .output()
+        else {
+            return (0.0, 0, vec![pid]);
+        };
+        let mut cpu_percent = 0.0;
+        let mut memory_bytes = 0_u64;
+        let mut process_ids = Vec::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let values: Vec<&str> = line.split_whitespace().collect();
+            if values.len() < 4 || values[0].parse::<u32>().ok() != Some(pid) {
+                continue;
+            }
+            if let Ok(process_id) = values[1].parse() {
+                process_ids.push(process_id);
+            }
+            cpu_percent += values[2].parse::<f64>().unwrap_or(0.0);
+            memory_bytes += values[3].parse::<u64>().unwrap_or(0) * 1024;
+        }
+        if process_ids.is_empty() {
+            process_ids.push(pid);
+        }
+        (cpu_percent, memory_bytes, process_ids)
+    }
+
+    #[cfg(windows)]
+    {
+        (0.0, 0, vec![pid])
+    }
+}
+
+fn listening_ports(process_ids: &[u32]) -> Vec<TaskPort> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        if process_ids.is_empty() {
+            return Vec::new();
+        }
+        let process_list = process_ids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let Ok(output) = Command::new("lsof")
+            .args(["-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-p", &process_list])
+            .output()
+        else {
+            return Vec::new();
+        };
+        let mut seen = HashSet::new();
+        let mut ports = Vec::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines().skip(1) {
+            let Some(endpoint) = line
+                .split_whitespace()
+                .rev()
+                .find(|value| *value != "(LISTEN)" && value.rsplit_once(':').is_some())
+            else {
+                continue;
+            };
+            let Some((raw_host, raw_port)) = endpoint.rsplit_once(':') else {
+                continue;
+            };
+            let Ok(port) = raw_port.parse::<u16>() else {
+                continue;
+            };
+            if !seen.insert(port) {
+                continue;
+            }
+            let host = raw_host
+                .trim_matches(['[', ']'])
+                .trim_start_matches("TCP")
+                .trim()
+                .to_string();
+            let scheme = if matches!(port, 443 | 8443 | 9443) {
+                "https"
+            } else {
+                "http"
+            };
+            let url = match (scheme, port) {
+                ("http", 80) => "http://localhost".to_string(),
+                ("https", 443) => "https://localhost".to_string(),
+                _ => format!("{scheme}://localhost:{port}"),
+            };
+            ports.push(TaskPort { host, port, url });
+        }
+        ports.sort_by_key(|item| item.port);
+        ports
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = process_ids;
+        Vec::new()
     }
 }
 
@@ -2271,12 +3192,41 @@ fn display_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        commit_message_prompt, normalize_git_remote, parse_git_file_record, read_git_commit_detail,
-        read_git_history, read_git_workspace, revert_git_commit_in_path, run_git_checked,
-        sanitize_commit_message, validate_git_path,
+        commit_message_prompt, migrate_project_tasks, normalize_git_remote, parse_git_file_record,
+        read_git_commit_detail, read_git_history, read_git_workspace, revert_git_commit_in_path,
+        run_git_checked, sanitize_commit_message, task_display_name, validate_git_path,
     };
     use std::fs;
     use uuid::Uuid;
+
+    #[test]
+    fn migrates_legacy_commands_to_primary_tasks() {
+        let mut project: super::Project = serde_json::from_str(
+            r#"{
+                "id": "project-1",
+                "name": "Web",
+                "path": "/tmp/web",
+                "command": "pnpm run dev",
+                "favorite": false,
+                "sortOrder": 100
+            }"#,
+        )
+        .expect("legacy project");
+        assert!(project.tasks.is_empty());
+        assert!(migrate_project_tasks(&mut project));
+        assert_eq!(project.tasks.len(), 1);
+        assert_eq!(project.tasks[0].id, "default");
+        assert_eq!(project.tasks[0].name, "Dev");
+        assert_eq!(project.tasks[0].command, "pnpm run dev");
+        assert!(project.tasks[0].auto_start);
+    }
+
+    #[test]
+    fn creates_readable_task_names_from_package_scripts() {
+        assert_eq!(task_display_name("dev:api"), "Dev · API");
+        assert_eq!(task_display_name("type-check"), "Type · Check");
+        assert_eq!(task_display_name("db_seed"), "DB · Seed");
+    }
 
     #[test]
     fn parses_worktree_and_staged_git_records() {

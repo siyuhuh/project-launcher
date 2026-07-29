@@ -1,6 +1,6 @@
 import type { DragEvent } from "react";
 import {
-  FileText,
+  Activity,
   Folder,
   GripVertical,
   LoaderCircle,
@@ -116,6 +116,7 @@ export function ProjectTable({
                   <span
                     className="table-activity"
                     data-running={running}
+                    data-crashed={project.crashedTaskCount > 0}
                     title={activityTitle(project)}
                   >
                     {projectActivity(project)}
@@ -132,6 +133,7 @@ export function ProjectTable({
                   <div className="table-command" title={project.command}>
                     <span>$</span>
                     <code>{project.command}</code>
+                    {project.taskCount > 1 ? <em>{project.taskCount}</em> : null}
                   </div>
                 </td>
                 <td>
@@ -170,10 +172,10 @@ export function ProjectTable({
                     <button
                       className="icon-button"
                       onClick={() => onLogs(project)}
-                      title="View logs"
-                      aria-label="View logs"
+                      title="Tasks and health"
+                      aria-label="Open tasks and health"
                     >
-                      <FileText size={13} />
+                      <Activity size={13} />
                     </button>
                     <button
                       className="icon-button"

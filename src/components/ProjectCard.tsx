@@ -1,6 +1,6 @@
 import type { DragEvent } from "react";
 import {
-  FileText,
+  Activity,
   Folder,
   GitBranch,
   GripVertical,
@@ -92,7 +92,12 @@ export function ProjectCard({
               <h2 title={project.name}>{project.name}</h2>
             </div>
             <div className="project-meta-row">
-              <span className="activity-label" data-running={running} title={activityTitle(project)}>
+              <span
+                className="activity-label"
+                data-running={running}
+                data-crashed={project.crashedTaskCount > 0}
+                title={activityTitle(project)}
+              >
                 {projectActivity(project)}
               </span>
               <GitStatusBadge
@@ -127,6 +132,7 @@ export function ProjectCard({
         </button>
         <div className="command-line" title={project.command}>
           <span>$</span><code>{project.command}</code>
+          {project.taskCount > 1 ? <em>{project.taskCount} tasks</em> : null}
         </div>
         <div className="utility-actions">
           <button
@@ -145,8 +151,13 @@ export function ProjectCard({
           >
             <Folder size={14} />
           </button>
-          <button className="icon-button" onClick={onLogs} title="View logs" aria-label="View logs">
-            <FileText size={14} />
+          <button
+            className="icon-button"
+            onClick={onLogs}
+            title="Tasks and health"
+            aria-label="Open tasks and health"
+          >
+            <Activity size={14} />
           </button>
           <button className="icon-button" onClick={onOpenTerminal} title="Open in Terminal" aria-label="Open in Terminal">
             <TerminalSquare size={14} />

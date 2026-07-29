@@ -2,7 +2,7 @@ pub mod core;
 
 use core::{
     CommitMessageProvider, DeveloperTool, GitCommitDetail, GitHistoryPage, GitWorkspace, Project,
-    ProjectDraft, ProjectView,
+    ProjectDraft, ProjectTaskView, ProjectView, WorkspaceGroup, WorkspaceGroupView,
 };
 
 #[tauri::command]
@@ -51,13 +51,72 @@ fn halt_project(project_id: String) -> Result<ProjectView, String> {
 }
 
 #[tauri::command]
+fn get_project_tasks(project_id: String) -> Result<Vec<ProjectTaskView>, String> {
+    core::project_tasks(&project_id)
+}
+
+#[tauri::command]
+fn launch_project_task(project_id: String, task_id: String) -> Result<ProjectTaskView, String> {
+    core::start_project_task(&project_id, &task_id)
+}
+
+#[tauri::command]
+fn halt_project_task(project_id: String, task_id: String) -> Result<ProjectTaskView, String> {
+    core::stop_project_task(&project_id, &task_id)
+}
+
+#[tauri::command]
 fn read_project_log(project_id: String, max_lines: usize) -> Result<String, String> {
     core::project_log(&project_id, max_lines)
 }
 
 #[tauri::command]
+fn read_project_task_log(
+    project_id: String,
+    task_id: String,
+    max_lines: usize,
+) -> Result<String, String> {
+    core::project_task_log(&project_id, &task_id, max_lines)
+}
+
+#[tauri::command]
 fn clear_log(project_id: String) -> Result<(), String> {
     core::clear_project_log(&project_id)
+}
+
+#[tauri::command]
+fn clear_task_log(project_id: String, task_id: String) -> Result<(), String> {
+    core::clear_project_task_log(&project_id, &task_id)
+}
+
+#[tauri::command]
+fn open_task_port(project_id: String, task_id: String, port: u16) -> Result<(), String> {
+    core::open_project_task_port(&project_id, &task_id, port)
+}
+
+#[tauri::command]
+fn get_workspace_groups() -> Result<Vec<WorkspaceGroupView>, String> {
+    core::list_workspace_groups()
+}
+
+#[tauri::command]
+fn save_workspace_group(group: WorkspaceGroup) -> Result<WorkspaceGroupView, String> {
+    core::upsert_workspace_group(group)
+}
+
+#[tauri::command]
+fn remove_workspace_group(group_id: String) -> Result<(), String> {
+    core::delete_workspace_group(&group_id)
+}
+
+#[tauri::command]
+fn launch_workspace_group(group_id: String) -> Result<WorkspaceGroupView, String> {
+    core::start_workspace_group(&group_id)
+}
+
+#[tauri::command]
+fn halt_workspace_group(group_id: String) -> Result<WorkspaceGroupView, String> {
+    core::stop_workspace_group(&group_id)
 }
 
 #[tauri::command]
@@ -202,8 +261,19 @@ pub fn run() {
             detect_project,
             launch_project,
             halt_project,
+            get_project_tasks,
+            launch_project_task,
+            halt_project_task,
             read_project_log,
+            read_project_task_log,
             clear_log,
+            clear_task_log,
+            open_task_port,
+            get_workspace_groups,
+            save_workspace_group,
+            remove_workspace_group,
+            launch_workspace_group,
+            halt_workspace_group,
             show_in_folder,
             show_in_terminal,
             get_git_workspace,

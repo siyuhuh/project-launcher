@@ -15,7 +15,12 @@ export function commandTag(command: string): CommandTag {
 
 export function projectActivity(project: ProjectView): string {
   if (project.status === "running") {
-    return `Running for ${elapsedTime(project.startedAt)}`;
+    const taskLabel =
+      project.taskCount > 1 ? `${project.runningTaskCount}/${project.taskCount} tasks · ` : "";
+    return `${taskLabel}Running for ${elapsedTime(project.startedAt)}`;
+  }
+  if (project.crashedTaskCount > 0) {
+    return `${project.crashedTaskCount} task${project.crashedTaskCount === 1 ? "" : "s"} crashed`;
   }
   if (project.startedAt) {
     return `Opened ${relativeTime(project.startedAt)}`;
