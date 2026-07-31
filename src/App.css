@@ -3579,6 +3579,142 @@ button.git-status:active {
   color: inherit !important;
 }
 
+.task-reliability-settings {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--deep), transparent 20%);
+}
+
+.task-reliability-settings > summary {
+  display: grid;
+  min-height: 29px;
+  grid-template-columns: 14px auto minmax(0, 1fr);
+  align-items: center;
+  padding: 0 8px;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.task-reliability-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-reliability-settings > summary svg {
+  color: var(--green);
+}
+
+.task-reliability-settings > summary small {
+  overflow: hidden;
+  color: var(--quiet);
+  font-size: 7px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-reliability-settings[open] > summary {
+  border-bottom: 1px solid var(--line);
+  background: var(--chrome);
+}
+
+.task-reliability-grid {
+  display: grid !important;
+  grid-template-columns: minmax(145px, 0.9fr) minmax(150px, 1.3fr) 88px !important;
+  align-items: end !important;
+  padding: 9px 9px 8px;
+  gap: 7px !important;
+}
+
+.task-reliability-grid > label {
+  gap: 4px;
+}
+
+.task-reliability-grid select,
+.task-reliability-grid input {
+  width: 100%;
+  height: 29px;
+  padding: 0 8px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  outline: 0;
+  background: var(--deep);
+  font-size: 8px;
+}
+
+.task-reliability-grid select:focus,
+.task-reliability-grid input:focus {
+  border-color: color-mix(in srgb, var(--green), transparent 58%);
+}
+
+.task-timeout-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 25px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--deep);
+}
+
+.task-timeout-input input {
+  border: 0;
+  background: transparent;
+}
+
+.task-timeout-input small {
+  color: var(--quiet);
+  font-size: 7px;
+}
+
+.task-dependency-picker {
+  display: grid !important;
+  grid-template-columns: 76px minmax(0, 1fr) !important;
+  align-items: center !important;
+  padding: 0 9px 9px;
+  gap: 7px !important;
+}
+
+.task-dependency-picker > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--quiet);
+  font-size: 7px;
+}
+
+.task-dependency-picker > div {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 4px !important;
+}
+
+.task-dependency-picker button {
+  min-height: 22px;
+  padding: 0 7px;
+  color: var(--quiet);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  font-size: 7px;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.task-dependency-picker button[data-active="true"] {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green), transparent 65%);
+  background: color-mix(in srgb, var(--green), transparent 93%);
+}
+
+.task-dependency-picker button:active {
+  transform: scale(0.97);
+}
+
 .task-remove-button {
   display: grid;
   width: 25px;
@@ -3968,7 +4104,19 @@ button.git-status:active {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--green), transparent 86%);
 }
 
-[data-health="crashed"] .task-status-dot {
+[data-health="ready"] .task-status-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green), transparent 78%);
+}
+
+[data-health="waiting"] .task-status-dot,
+[data-health="starting"] .task-status-dot {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber), transparent 86%);
+}
+
+[data-health="crashed"] .task-status-dot,
+[data-health="blocked"] .task-status-dot {
   background: var(--red);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--red), transparent 87%);
 }
@@ -4010,7 +4158,17 @@ button.git-status:active {
   color: var(--green);
 }
 
-.task-row[data-health="crashed"] .task-row-copy small {
+.task-row[data-health="ready"] .task-row-copy small {
+  color: var(--green);
+}
+
+.task-row[data-health="waiting"] .task-row-copy small,
+.task-row[data-health="starting"] .task-row-copy small {
+  color: var(--amber);
+}
+
+.task-row[data-health="crashed"] .task-row-copy small,
+.task-row[data-health="blocked"] .task-row-copy small {
   color: var(--red);
 }
 
@@ -4062,6 +4220,44 @@ button.git-status:active {
   font-size: 13px;
   font-weight: 680;
   letter-spacing: -0.02em;
+}
+
+.task-health-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.task-health-title > span {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  color: var(--quiet);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 6px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.task-health-title > span[data-state="ready"],
+.task-health-title > span[data-state="running"] {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green), transparent 70%);
+}
+
+.task-health-title > span[data-state="waiting"],
+.task-health-title > span[data-state="starting"] {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber), transparent 70%);
+}
+
+.task-health-title > span[data-state="blocked"],
+.task-health-title > span[data-state="crashed"] {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red), transparent 70%);
 }
 
 .task-health-header code {
@@ -4131,6 +4327,98 @@ button.git-status:active {
 .task-health-metric[data-tone="error"] > span svg,
 .task-health-metric[data-tone="error"] strong {
   color: var(--red);
+}
+
+.task-reliability-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 90px;
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.task-reliability-summary > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 9px 10px;
+  gap: 8px;
+  border-right: 1px solid var(--line);
+}
+
+.task-reliability-summary > div:last-child {
+  border-right: 0;
+}
+
+.task-reliability-summary svg {
+  flex: 0 0 auto;
+  color: var(--green);
+}
+
+.task-reliability-summary span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.task-reliability-summary small {
+  color: var(--quiet);
+  font-size: 6px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.task-reliability-summary strong {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-runtime-notice {
+  display: flex;
+  margin-top: 8px;
+  padding: 10px 11px;
+  gap: 9px;
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber), transparent 74%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--amber), transparent 94%);
+}
+
+.task-runtime-notice[data-tone="error"] {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red), transparent 74%);
+  background: color-mix(in srgb, var(--red), transparent 95%);
+}
+
+.task-runtime-notice > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.task-runtime-notice > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.task-runtime-notice strong {
+  color: var(--text);
+  font-size: 9px;
+}
+
+.task-runtime-notice span,
+.task-runtime-notice code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-port-section,
@@ -4656,6 +4944,12 @@ button.git-status:active {
   font-size: 6px;
 }
 
+.workspace-task-picker button .workspace-task-order {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green), transparent 68%);
+  font-weight: 750;
+}
+
 .workspace-group-editor > footer {
   display: flex;
   min-height: 58px;
@@ -4778,12 +5072,20 @@ button.git-status:active {
   place-items: center;
 }
 
-.workspace-group-task-list > div[data-status="running"] .workspace-task-status {
+.workspace-group-task-list > div[data-state="ready"] .workspace-task-status,
+.workspace-group-task-list > div[data-state="running"] .workspace-task-status {
   background: var(--green);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--green), transparent 86%);
 }
 
-.workspace-group-task-list > div[data-crashed="true"] .workspace-task-status {
+.workspace-group-task-list > div[data-state="waiting"] .workspace-task-status,
+.workspace-group-task-list > div[data-state="starting"] .workspace-task-status {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber), transparent 86%);
+}
+
+.workspace-group-task-list > div[data-state="crashed"] .workspace-task-status,
+.workspace-group-task-list > div[data-state="blocked"] .workspace-task-status {
   width: 14px;
   height: 14px;
   background: transparent;
@@ -4796,8 +5098,25 @@ button.git-status:active {
 }
 
 .workspace-group-task-list strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: var(--text);
   font-size: 10px;
+}
+
+.workspace-group-task-list strong i {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--quiet);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 650;
+  place-items: center;
 }
 
 .workspace-group-task-list small {
@@ -4811,11 +5130,18 @@ button.git-status:active {
   font-style: normal;
 }
 
-.workspace-group-task-list > div[data-status="running"] em {
+.workspace-group-task-list > div[data-state="ready"] em,
+.workspace-group-task-list > div[data-state="running"] em {
   color: var(--green);
 }
 
-.workspace-group-task-list > div[data-crashed="true"] em {
+.workspace-group-task-list > div[data-state="waiting"] em,
+.workspace-group-task-list > div[data-state="starting"] em {
+  color: var(--amber);
+}
+
+.workspace-group-task-list > div[data-state="crashed"] em,
+.workspace-group-task-list > div[data-state="blocked"] em {
   color: var(--red);
 }
 

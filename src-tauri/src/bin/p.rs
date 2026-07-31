@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
-use runbox_lib::core::{self, GitStatus, ProcessStatus, Project};
+use runbox_lib::core::{
+    self, GitStatus, ProcessStatus, Project, ProjectTask, TaskLifecycleState, TaskReadinessKind,
+};
 use std::{thread, time::Duration};
 
 #[derive(Parser)]
@@ -205,10 +207,11 @@ fn start(query: &str, task_query: Option<&str>) -> Result<(), String> {
     if let Some(task_query) = task_query {
         let view = core::start_project_task(&project.id, task_query)?;
         println!(
-            "{} {} / {}  {}",
+            "{} {} / {}  {} · {}",
             "●".green(),
             project.name.bold(),
             view.task.name.bold(),
+            task_state(&view.state),
             format!("pid {}", view.pid.unwrap_or_default()).dimmed()
         );
         println!("  {} {}", "$".green(), view.task.command);
@@ -286,13 +289,7 @@ fn tasks(query: &str) -> Result<(), String> {
     let project = core::find_project(query)?;
     println!("{}  {}", project.name.bold(), project.path.dimmed());
     for task in core::project_tasks(&project.id)? {
-        let (dot, state) = if task.status == ProcessStatus::Running {
-            ("●".green().to_string(), "running".green().to_string())
-        } else if task.exit_reason == Some(core::TaskExitReason::Crashed) {
-            ("!".red().bold().to_string(), "crashed".red().to_string())
-        } else {
-            ("○".dimmed().to_string(), "stopped".dimmed().to_string())
-        };
+        let (dot, state) = task_state_columns(&task.state);
         let health = if task.status == ProcessStatus::Running {
             format!(
                 "{:.1}% CPU · {:.0} MB",
@@ -315,6 +312,37 @@ fn tasks(query: &str) -> Result<(), String> {
         for port in task.ports {
             println!("    {} {}", "↗".green(), port.url);
         }
+        let readiness = readiness_summary(&task.task);
+        let dependencies = task
+            .task
+            .depends_on
+            .iter()
+            .filter_map(|id| project.tasks.iter().find(|candidate| candidate.id == *id))
+            .map(|dependency| dependency.name.as_str())
+            .collect::<Vec<_>>();
+        println!(
+            "    {} {}{}",
+            "✓".green(),
+            readiness.dimmed(),
+            if dependencies.is_empty() {
+                String::new()
+            } else {
+                format!(" · after {}", dependencies.join(", "))
+                    .dimmed()
+                    .to_string()
+            }
+        );
+        if let Some(conflict) = task.port_conflict {
+            println!(
+                "    {} port {} used by {} (pid {})",
+                "!".red().bold(),
+                conflict.port,
+                conflict.process_name,
+                conflict.pid
+            );
+        } else if let Some(error) = task.last_error {
+            println!("    {} {}", "!".red().bold(), error);
+        }
     }
     Ok(())
 }
@@ -326,7 +354,10 @@ fn workspaces() -> Result<(), String> {
         return Ok(());
     }
     for group in groups {
-        let state = format!("{}/{} running", group.running_task_count, group.tasks.len());
+        let mut state = format!("{}/{} ready", group.ready_task_count, group.tasks.len());
+        if group.blocked_task_count > 0 {
+            state.push_str(&format!(" · {} blocked", group.blocked_task_count));
+        }
         println!(
             "{} {:<24} {}",
             if group.running_task_count > 0 {
@@ -348,15 +379,20 @@ fn workspace(query: &str, stop: bool) -> Result<(), String> {
         core::start_workspace_group(query)?
     };
     println!(
-        "{} {}  {}/{} running",
+        "{} {}  {}/{} ready{}",
         if stop {
             "○".yellow().to_string()
         } else {
             "●".green().to_string()
         },
         group.group.name.bold(),
-        group.running_task_count,
-        group.tasks.len()
+        group.ready_task_count,
+        group.tasks.len(),
+        if group.blocked_task_count > 0 {
+            format!(" · {} blocked", group.blocked_task_count)
+        } else {
+            String::new()
+        }
     );
     Ok(())
 }
@@ -409,4 +445,55 @@ fn shell_word(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+fn task_state_columns(state: &TaskLifecycleState) -> (String, String) {
+    match state {
+        TaskLifecycleState::Ready | TaskLifecycleState::Running => (
+            "●".green().to_string(),
+            task_state(state).green().to_string(),
+        ),
+        TaskLifecycleState::Waiting | TaskLifecycleState::Starting => (
+            "◐".yellow().to_string(),
+            task_state(state).yellow().to_string(),
+        ),
+        TaskLifecycleState::Blocked | TaskLifecycleState::Crashed => (
+            "!".red().bold().to_string(),
+            task_state(state).red().to_string(),
+        ),
+        TaskLifecycleState::Exited => (
+            "○".yellow().to_string(),
+            task_state(state).yellow().to_string(),
+        ),
+        TaskLifecycleState::Stopped => (
+            "○".dimmed().to_string(),
+            task_state(state).dimmed().to_string(),
+        ),
+    }
+}
+
+fn task_state(state: &TaskLifecycleState) -> &'static str {
+    match state {
+        TaskLifecycleState::Stopped => "stopped",
+        TaskLifecycleState::Waiting => "waiting",
+        TaskLifecycleState::Starting => "starting",
+        TaskLifecycleState::Running => "running",
+        TaskLifecycleState::Ready => "ready",
+        TaskLifecycleState::Exited => "exited",
+        TaskLifecycleState::Crashed => "crashed",
+        TaskLifecycleState::Blocked => "blocked",
+    }
+}
+
+fn readiness_summary(task: &ProjectTask) -> String {
+    let condition = match task.readiness.kind {
+        TaskReadinessKind::Process => "process stays alive".to_string(),
+        TaskReadinessKind::Port => format!("port {} listens", task.readiness.value),
+        TaskReadinessKind::Http => format!("{} responds", task.readiness.value),
+        TaskReadinessKind::Log => format!("log contains {:?}", task.readiness.value),
+    };
+    format!(
+        "ready when {condition} · timeout {}s",
+        task.readiness.timeout_seconds
+    )
 }

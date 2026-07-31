@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
+    net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{Mutex, OnceLock, mpsc},
@@ -22,9 +23,16 @@ const COMMIT_DIFF_LIMIT: usize = 96 * 1024;
 const HISTORY_PATCH_LIMIT: usize = 768 * 1024;
 const AI_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_TASK_ID: &str = "default";
+const DEFAULT_READINESS_TIMEOUT_SECONDS: u64 = 30;
+const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const PROCESS_START_GRACE: Duration = Duration::from_millis(250);
 
 fn default_true() -> bool {
     true
+}
+
+fn default_readiness_timeout_seconds() -> u64 {
+    DEFAULT_READINESS_TIMEOUT_SECONDS
 }
 
 #[derive(Default)]
@@ -62,6 +70,41 @@ pub struct ProjectTask {
     pub command: String,
     #[serde(default = "default_true")]
     pub auto_start: bool,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub readiness: TaskReadiness,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskReadinessKind {
+    #[default]
+    Process,
+    Port,
+    Http,
+    Log,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskReadiness {
+    #[serde(default)]
+    pub kind: TaskReadinessKind,
+    #[serde(default)]
+    pub value: String,
+    #[serde(default = "default_readiness_timeout_seconds")]
+    pub timeout_seconds: u64,
+}
+
+impl Default for TaskReadiness {
+    fn default() -> Self {
+        Self {
+            kind: TaskReadinessKind::Process,
+            value: String::new(),
+            timeout_seconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -206,6 +249,12 @@ struct RuntimeInfo {
     exit_code: Option<i32>,
     #[serde(default)]
     exit_reason: Option<TaskExitReason>,
+    #[serde(default)]
+    state: TaskLifecycleState,
+    #[serde(default)]
+    ready_at: Option<u64>,
+    #[serde(default)]
+    last_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -216,12 +265,35 @@ pub enum TaskExitReason {
     Crashed,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskLifecycleState {
+    #[default]
+    Stopped,
+    Waiting,
+    Starting,
+    Running,
+    Ready,
+    Exited,
+    Crashed,
+    Blocked,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPort {
     pub host: String,
     pub port: u16,
     pub url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPortConflict {
+    pub port: u16,
+    pub pid: u32,
+    pub process_name: String,
+    pub command: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -235,9 +307,14 @@ pub struct ProjectTaskView {
     pub stopped_at: Option<u64>,
     pub exit_code: Option<i32>,
     pub exit_reason: Option<TaskExitReason>,
+    pub state: TaskLifecycleState,
+    pub ready_at: Option<u64>,
+    pub last_error: Option<String>,
     pub cpu_percent: f64,
     pub memory_bytes: u64,
     pub ports: Vec<TaskPort>,
+    pub expected_port: Option<u16>,
+    pub port_conflict: Option<TaskPortConflict>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -264,6 +341,7 @@ pub struct WorkspaceGroupTaskView {
     pub task_name: String,
     pub status: ProcessStatus,
     pub exit_reason: Option<TaskExitReason>,
+    pub state: TaskLifecycleState,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -274,6 +352,8 @@ pub struct WorkspaceGroupView {
     pub tasks: Vec<WorkspaceGroupTaskView>,
     pub running_task_count: usize,
     pub crashed_task_count: usize,
+    pub ready_task_count: usize,
+    pub blocked_task_count: usize,
 }
 
 pub fn data_directory() -> Result<PathBuf, String> {
@@ -508,6 +588,8 @@ fn migrate_project_tasks(project: &mut Project) -> bool {
             name: "Dev".to_string(),
             command: project.command.trim().to_string(),
             auto_start: true,
+            depends_on: Vec::new(),
+            readiness: TaskReadiness::default(),
         });
         changed = true;
     }
@@ -549,7 +631,57 @@ fn normalize_project_tasks(project: &mut Project) -> Result<(), String> {
         if !names.insert(task.name.to_lowercase()) {
             return Err(format!("Task name “{}” is used more than once", task.name));
         }
+
+        task.readiness.value = task.readiness.value.trim().to_string();
+        task.readiness.timeout_seconds = task.readiness.timeout_seconds.clamp(1, 300);
+        match task.readiness.kind {
+            TaskReadinessKind::Process => task.readiness.value.clear(),
+            TaskReadinessKind::Port => {
+                let port =
+                    task.readiness.value.parse::<u16>().map_err(|_| {
+                        format!("Task “{}” needs a valid readiness port", task.name)
+                    })?;
+                task.readiness.value = port.to_string();
+            }
+            TaskReadinessKind::Http => {
+                parse_http_target(&task.readiness.value).map_err(|error| {
+                    format!("Task “{}” has an invalid readiness URL: {error}", task.name)
+                })?;
+            }
+            TaskReadinessKind::Log if task.readiness.value.is_empty() => {
+                return Err(format!(
+                    "Task “{}” needs a log phrase for its readiness check",
+                    task.name
+                ));
+            }
+            TaskReadinessKind::Log => {}
+        }
     }
+
+    for task in &mut project.tasks {
+        let mut dependencies = HashSet::new();
+        task.depends_on.retain(|dependency| {
+            !dependency.trim().is_empty() && dependencies.insert(dependency.clone())
+        });
+        if task
+            .depends_on
+            .iter()
+            .any(|dependency| dependency == &task.id)
+        {
+            return Err(format!("Task “{}” cannot depend on itself", task.name));
+        }
+        if let Some(missing) = task
+            .depends_on
+            .iter()
+            .find(|dependency| !ids.contains(*dependency))
+        {
+            return Err(format!(
+                "Task “{}” depends on a task that no longer exists ({missing})",
+                task.name
+            ));
+        }
+    }
+    validate_task_dependency_graph(&project.tasks)?;
     project.command = project.tasks[0].command.clone();
     Ok(())
 }
@@ -681,23 +813,31 @@ pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
         let mut tasks: Vec<ProjectTask> = script_names
             .into_iter()
             .enumerate()
-            .map(|(index, script)| ProjectTask {
-                id: if index == 0 {
-                    DEFAULT_TASK_ID.to_string()
-                } else {
-                    format!("{}-{index}", task_id_from_name(script))
-                },
-                name: task_display_name(script),
-                command: package_script_command(package_manager, script),
-                auto_start: auto_start_script(script),
+            .map(|(index, script)| {
+                let command = package_script_command(package_manager, script);
+                ProjectTask {
+                    id: if index == 0 {
+                        DEFAULT_TASK_ID.to_string()
+                    } else {
+                        format!("{}-{index}", task_id_from_name(script))
+                    },
+                    name: task_display_name(script),
+                    readiness: task_readiness_for_command(&command),
+                    command,
+                    auto_start: auto_start_script(script),
+                    depends_on: Vec::new(),
+                }
             })
             .collect();
         if tasks.is_empty() {
+            let command = package_script_command(package_manager, "dev");
             tasks.push(ProjectTask {
                 id: DEFAULT_TASK_ID.to_string(),
                 name: "Dev".to_string(),
-                command: package_script_command(package_manager, "dev"),
+                readiness: task_readiness_for_command(&command),
+                command,
                 auto_start: true,
+                depends_on: Vec::new(),
             });
         }
         if !tasks.iter().any(|task| task.auto_start)
@@ -734,8 +874,10 @@ pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
     let task = ProjectTask {
         id: DEFAULT_TASK_ID.to_string(),
         name: "Dev".to_string(),
+        readiness: task_readiness_for_command(command),
         command: command.to_string(),
         auto_start: true,
+        depends_on: Vec::new(),
     };
     Ok(ProjectDraft {
         name: fallback_name,
@@ -817,34 +959,170 @@ fn task_id_from_name(name: &str) -> String {
     }
 }
 
+fn task_readiness_for_command(command: &str) -> TaskReadiness {
+    let Some(port) = infer_command_port(command) else {
+        return TaskReadiness::default();
+    };
+    TaskReadiness {
+        kind: TaskReadinessKind::Port,
+        value: port.to_string(),
+        timeout_seconds: DEFAULT_READINESS_TIMEOUT_SECONDS,
+    }
+}
+
+fn infer_command_port(command: &str) -> Option<u16> {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    for (index, token) in tokens.iter().enumerate() {
+        let clean = token.trim_matches(['\'', '"', ',', ';']);
+        if let Some(value) = clean
+            .strip_prefix("PORT=")
+            .or_else(|| clean.strip_prefix("--port="))
+            && let Some(port) = parse_port_token(value)
+        {
+            return Some(port);
+        }
+        if matches!(clean, "--port" | "-p")
+            && let Some(port) = tokens
+                .get(index + 1)
+                .and_then(|value| parse_port_token(value))
+        {
+            return Some(port);
+        }
+        if clean.ends_with("http.server")
+            && let Some(port) = tokens
+                .get(index + 1)
+                .and_then(|value| parse_port_token(value))
+        {
+            return Some(port);
+        }
+        for marker in ["localhost:", "127.0.0.1:"] {
+            if let Some((_, value)) = clean.rsplit_once(marker)
+                && let Some(port) = parse_port_token(value)
+            {
+                return Some(port);
+            }
+        }
+    }
+    None
+}
+
+fn parse_port_token(value: &str) -> Option<u16> {
+    value
+        .trim_matches(|character: char| !character.is_ascii_digit())
+        .parse()
+        .ok()
+}
+
+#[derive(Debug)]
+struct HttpTarget {
+    host: String,
+    port: u16,
+    path: String,
+}
+
+fn parse_http_target(value: &str) -> Result<HttpTarget, String> {
+    let address = value
+        .strip_prefix("http://")
+        .ok_or_else(|| "use an http:// URL".to_string())?;
+    let (authority, path) = address
+        .split_once('/')
+        .map(|(authority, path)| (authority, format!("/{path}")))
+        .unwrap_or((address, "/".to_string()));
+    if authority.is_empty() {
+        return Err("the host is missing".to_string());
+    }
+    let (host, port) = if let Some((host, port)) = authority.rsplit_once(':') {
+        let port = port
+            .parse::<u16>()
+            .map_err(|_| "the port is invalid".to_string())?;
+        (host.to_string(), port)
+    } else {
+        (authority.to_string(), 80)
+    };
+    if host.is_empty() || host.contains(['[', ']']) {
+        return Err("the host is invalid".to_string());
+    }
+    Ok(HttpTarget { host, port, path })
+}
+
+fn validate_task_dependency_graph(tasks: &[ProjectTask]) -> Result<(), String> {
+    let targets: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
+    task_start_order_from_tasks(tasks, &targets).map(|_| ())
+}
+
+fn task_start_order(project: &Project, target_ids: &[String]) -> Result<Vec<ProjectTask>, String> {
+    task_start_order_from_tasks(&project.tasks, target_ids)
+}
+
+fn task_start_order_from_tasks(
+    tasks: &[ProjectTask],
+    target_ids: &[String],
+) -> Result<Vec<ProjectTask>, String> {
+    let task_by_id: HashMap<&str, &ProjectTask> = tasks
+        .iter()
+        .map(|task| (task.id.as_str(), task))
+        .collect();
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+    let mut order = Vec::new();
+    for target_id in target_ids {
+        visit_task_dependency(
+            target_id,
+            &task_by_id,
+            &mut visiting,
+            &mut visited,
+            &mut order,
+        )?;
+    }
+    Ok(order)
+}
+
+fn visit_task_dependency(
+    task_id: &str,
+    tasks: &HashMap<&str, &ProjectTask>,
+    visiting: &mut HashSet<String>,
+    visited: &mut HashSet<String>,
+    order: &mut Vec<ProjectTask>,
+) -> Result<(), String> {
+    if visited.contains(task_id) {
+        return Ok(());
+    }
+    let task = tasks
+        .get(task_id)
+        .ok_or_else(|| format!("Task dependency {task_id} no longer exists"))?;
+    if !visiting.insert(task_id.to_string()) {
+        return Err(format!("Task dependency cycle includes “{}”", task.name));
+    }
+    for dependency in &task.depends_on {
+        visit_task_dependency(dependency, tasks, visiting, visited, order)?;
+    }
+    visiting.remove(task_id);
+    visited.insert(task_id.to_string());
+    order.push((*task).clone());
+    Ok(())
+}
+
 pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
     let project = find_project(project_id)?;
-    let mut selected: Vec<ProjectTask> = project
+    let mut target_ids: Vec<String> = project
         .tasks
         .iter()
         .filter(|task| task.auto_start)
-        .cloned()
+        .map(|task| task.id.clone())
         .collect();
-    if selected.is_empty()
+    if target_ids.is_empty()
         && let Some(primary) = project.tasks.first()
     {
-        selected.push(primary.clone());
+        target_ids.push(primary.id.clone());
     }
 
-    let mut started_task_ids: Vec<String> = Vec::new();
-    for task in selected {
-        if task_is_running(&project.id, &task.id)? {
-            continue;
-        }
-        if let Err(error) = start_task_inner(&project, &task) {
-            for task_id in &started_task_ids {
-                let _ = stop_task_inner(&project, task_id);
-            }
-            return Err(error);
-        }
-        started_task_ids.push(task.id);
+    let mut started = Vec::new();
+    if let Err(failure) = start_task_plan(&project, &target_ids, &mut started) {
+        rollback_started_tasks(&started, &failure);
+        mark_waiting_tasks_blocked(&project, &failure.message);
+        return Err(failure.message);
     }
-    if started_task_ids.is_empty() {
+    if started.is_empty() {
         return Err(format!("{} is already running", project.name));
     }
 
@@ -854,8 +1132,158 @@ pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
 pub fn start_project_task(project_id: &str, task_query: &str) -> Result<ProjectTaskView, String> {
     let project = find_project(project_id)?;
     let task = find_project_task(&project, task_query)?;
-    start_task_inner(&project, &task)?;
+    let mut started = Vec::new();
+    if let Err(failure) = start_task_plan(&project, std::slice::from_ref(&task.id), &mut started) {
+        rollback_started_tasks(&started, &failure);
+        mark_waiting_tasks_blocked(&project, &failure.message);
+        return Err(failure.message);
+    }
+    if started.is_empty() {
+        return Err(format!(
+            "{} / {} is already running",
+            project.name, task.name
+        ));
+    }
     task_view(&project, &task, true)
+}
+
+#[derive(Debug)]
+struct TaskStartFailure {
+    project_id: String,
+    task_id: String,
+    message: String,
+    state: TaskLifecycleState,
+}
+
+fn start_task_plan(
+    project: &Project,
+    target_ids: &[String],
+    started: &mut Vec<(String, String)>,
+) -> Result<(), TaskStartFailure> {
+    let order = task_start_order(project, target_ids).map_err(|message| TaskStartFailure {
+        project_id: project.id.clone(),
+        task_id: target_ids.first().cloned().unwrap_or_default(),
+        message,
+        state: TaskLifecycleState::Blocked,
+    })?;
+
+    for task in &order {
+        if !task.depends_on.is_empty()
+            && !task_is_running(&project.id, &task.id).map_err(|message| TaskStartFailure {
+                project_id: project.id.clone(),
+                task_id: task.id.clone(),
+                message,
+                state: TaskLifecycleState::Blocked,
+            })?
+        {
+            write_task_runtime(
+                &project.id,
+                &task.id,
+                &RuntimeInfo {
+                    state: TaskLifecycleState::Waiting,
+                    last_error: Some(dependency_waiting_label(project, task)),
+                    ..RuntimeInfo::default()
+                },
+            )
+            .map_err(|message| TaskStartFailure {
+                project_id: project.id.clone(),
+                task_id: task.id.clone(),
+                message,
+                state: TaskLifecycleState::Blocked,
+            })?;
+        }
+    }
+
+    for task in order {
+        if task_is_running(&project.id, &task.id).map_err(|message| TaskStartFailure {
+            project_id: project.id.clone(),
+            task_id: task.id.clone(),
+            message,
+            state: TaskLifecycleState::Blocked,
+        })? {
+            wait_for_task_readiness(project, &task)?;
+            continue;
+        }
+
+        if let Some(conflict) = task_port_conflict(&task, &[]) {
+            return Err(TaskStartFailure {
+                project_id: project.id.clone(),
+                task_id: task.id.clone(),
+                message: port_conflict_message(&conflict),
+                state: TaskLifecycleState::Blocked,
+            });
+        }
+        start_task_inner(project, &task).map_err(|message| TaskStartFailure {
+            project_id: project.id.clone(),
+            task_id: task.id.clone(),
+            message,
+            state: TaskLifecycleState::Crashed,
+        })?;
+        started.push((project.id.clone(), task.id.clone()));
+        wait_for_task_readiness(project, &task)?;
+    }
+    Ok(())
+}
+
+fn dependency_waiting_label(project: &Project, task: &ProjectTask) -> String {
+    let names = task
+        .depends_on
+        .iter()
+        .filter_map(|dependency| {
+            project
+                .tasks
+                .iter()
+                .find(|candidate| candidate.id == *dependency)
+                .map(|candidate| candidate.name.as_str())
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Waiting for {names}")
+}
+
+fn rollback_started_tasks(started: &[(String, String)], failure: &TaskStartFailure) {
+    for (project_id, task_id) in started.iter().rev() {
+        if let Ok(project) = find_project(project_id)
+            && task_is_running(project_id, task_id).unwrap_or(false)
+        {
+            let _ = stop_task_inner(&project, task_id);
+        }
+    }
+    let failure_was_started = started.iter().any(|(project_id, task_id)| {
+        project_id == &failure.project_id && task_id == &failure.task_id
+    });
+    let existing_runtime = (!failure_was_started)
+        .then(|| read_task_runtime(&failure.project_id, &failure.task_id).ok())
+        .flatten()
+        .filter(|runtime| runtime.pid.is_some());
+    let mut runtime = if let Some(runtime) = existing_runtime {
+        runtime
+    } else {
+        RuntimeInfo {
+            stopped_at: Some(now()),
+            exit_reason: (failure.state == TaskLifecycleState::Crashed)
+                .then_some(TaskExitReason::Crashed),
+            ..RuntimeInfo::default()
+        }
+    };
+    runtime.state = failure.state.clone();
+    runtime.ready_at = None;
+    runtime.last_error = Some(failure.message.clone());
+    let _ = write_task_runtime(&failure.project_id, &failure.task_id, &runtime);
+}
+
+fn mark_waiting_tasks_blocked(project: &Project, reason: &str) {
+    for task in &project.tasks {
+        let Ok(mut runtime) = read_task_runtime(&project.id, &task.id) else {
+            continue;
+        };
+        if runtime.pid.is_none() && runtime.state == TaskLifecycleState::Waiting {
+            runtime.state = TaskLifecycleState::Blocked;
+            runtime.stopped_at = Some(now());
+            runtime.last_error = Some(format!("Not started: {reason}"));
+            let _ = write_task_runtime(&project.id, &task.id, &runtime);
+        }
+    }
 }
 
 fn start_task_inner(project: &Project, task: &ProjectTask) -> Result<(), String> {
@@ -919,10 +1347,81 @@ fn start_task_inner(project: &Project, task: &ProjectTask) -> Result<(), String>
             stopped_at: None,
             exit_code: None,
             exit_reason: None,
+            state: TaskLifecycleState::Starting,
+            ready_at: None,
+            last_error: None,
         },
     )?;
     drop(child);
     Ok(())
+}
+
+fn wait_for_task_readiness(project: &Project, task: &ProjectTask) -> Result<(), TaskStartFailure> {
+    let timeout = Duration::from_secs(task.readiness.timeout_seconds.clamp(1, 300));
+    let deadline = Instant::now() + timeout;
+    if task.readiness.kind == TaskReadinessKind::Process {
+        thread::sleep(PROCESS_START_GRACE);
+    }
+
+    loop {
+        let mut runtime =
+            read_task_runtime(&project.id, &task.id).map_err(|message| TaskStartFailure {
+                project_id: project.id.clone(),
+                task_id: task.id.clone(),
+                message,
+                state: TaskLifecycleState::Crashed,
+            })?;
+        let Some(pid) = runtime.pid else {
+            let exit = runtime
+                .exit_code
+                .map(|code| format!(" with exit code {code}"))
+                .unwrap_or_default();
+            return Err(TaskStartFailure {
+                project_id: project.id.clone(),
+                task_id: task.id.clone(),
+                message: format!(
+                    "{} / {} exited before it was ready{exit}",
+                    project.name, task.name
+                ),
+                state: TaskLifecycleState::Crashed,
+            });
+        };
+
+        let ready = task_readiness_satisfied(project, task, pid);
+        if ready {
+            runtime.state = if task.readiness.kind == TaskReadinessKind::Process {
+                TaskLifecycleState::Running
+            } else {
+                TaskLifecycleState::Ready
+            };
+            runtime.ready_at = Some(now());
+            runtime.last_error = None;
+            write_task_runtime(&project.id, &task.id, &runtime).map_err(|message| {
+                TaskStartFailure {
+                    project_id: project.id.clone(),
+                    task_id: task.id.clone(),
+                    message,
+                    state: TaskLifecycleState::Crashed,
+                }
+            })?;
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(TaskStartFailure {
+                project_id: project.id.clone(),
+                task_id: task.id.clone(),
+                message: format!(
+                    "{} / {} did not become ready within {} seconds ({})",
+                    project.name,
+                    task.name,
+                    task.readiness.timeout_seconds,
+                    readiness_label(&task.readiness)
+                ),
+                state: TaskLifecycleState::Blocked,
+            });
+        }
+        thread::sleep(READINESS_POLL_INTERVAL);
+    }
 }
 
 pub fn stop_project(project_id: &str) -> Result<ProjectView, String> {
@@ -959,6 +1458,9 @@ fn stop_task_inner(project: &Project, task_id: &str) -> Result<(), String> {
     runtime.stopped_at = Some(now());
     runtime.exit_code = None;
     runtime.exit_reason = Some(TaskExitReason::Stopped);
+    runtime.state = TaskLifecycleState::Stopped;
+    runtime.ready_at = None;
+    runtime.last_error = None;
     let _ = fs::remove_file(task_exit_file(&project.id, task_id)?);
     write_task_runtime(&project.id, task_id, &runtime)
 }
@@ -977,7 +1479,31 @@ fn task_view(
     task: &ProjectTask,
     include_health: bool,
 ) -> Result<ProjectTaskView, String> {
-    let runtime = read_task_runtime(&project.id, &task.id)?;
+    let mut runtime = read_task_runtime(&project.id, &task.id)?;
+    if let Some(pid) = runtime.pid
+        && runtime.state == TaskLifecycleState::Starting
+    {
+        if task_readiness_satisfied(project, task, pid) {
+            runtime.state = if task.readiness.kind == TaskReadinessKind::Process {
+                TaskLifecycleState::Running
+            } else {
+                TaskLifecycleState::Ready
+            };
+            runtime.ready_at = Some(now());
+            runtime.last_error = None;
+            write_task_runtime(&project.id, &task.id, &runtime)?;
+        } else if runtime.started_at.is_some_and(|started_at| {
+            now().saturating_sub(started_at) >= task.readiness.timeout_seconds
+        }) {
+            runtime.state = TaskLifecycleState::Blocked;
+            runtime.last_error = Some(format!(
+                "Readiness timed out after {} seconds ({})",
+                task.readiness.timeout_seconds,
+                readiness_label(&task.readiness)
+            ));
+            write_task_runtime(&project.id, &task.id, &runtime)?;
+        }
+    }
     let (cpu_percent, memory_bytes, process_ids) = if include_health {
         runtime
             .pid
@@ -991,6 +1517,12 @@ fn task_view(
     } else {
         Vec::new()
     };
+    let expected_port = expected_task_port(task);
+    let port_conflict = if include_health && runtime.pid.is_none() {
+        task_port_conflict(task, &[])
+    } else {
+        None
+    };
     Ok(ProjectTaskView {
         task: task.clone(),
         status: if runtime.pid.is_some() {
@@ -1003,9 +1535,14 @@ fn task_view(
         stopped_at: runtime.stopped_at,
         exit_code: runtime.exit_code,
         exit_reason: runtime.exit_reason,
+        state: runtime.state,
+        ready_at: runtime.ready_at,
+        last_error: runtime.last_error,
         cpu_percent,
         memory_bytes,
         ports,
+        expected_port,
+        port_conflict,
     })
 }
 
@@ -1144,19 +1681,15 @@ pub fn start_workspace_group(group_query: &str) -> Result<WorkspaceGroupView, St
             .iter()
             .find(|project| project.id == entry.project_id)
             .ok_or_else(|| "A workspace project no longer exists".to_string())?;
-        let task = find_project_task(project, &entry.task_id)?;
-        if task_is_running(&project.id, &task.id)? {
-            continue;
-        }
-        if let Err(error) = start_task_inner(project, &task) {
-            for (project_id, task_id) in started {
-                if let Ok(started_project) = find_project(&project_id) {
-                    let _ = stop_task_inner(&started_project, &task_id);
-                }
+        if let Err(failure) =
+            start_task_plan(project, std::slice::from_ref(&entry.task_id), &mut started)
+        {
+            rollback_started_tasks(&started, &failure);
+            for project in &projects {
+                mark_waiting_tasks_blocked(project, &failure.message);
             }
-            return Err(error);
+            return Err(failure.message);
         }
-        started.push((project.id.clone(), task.id));
     }
     workspace_group_view(group)
 }
@@ -1164,6 +1697,8 @@ pub fn start_workspace_group(group_query: &str) -> Result<WorkspaceGroupView, St
 pub fn stop_workspace_group(group_query: &str) -> Result<WorkspaceGroupView, String> {
     let group = find_workspace_group(group_query)?;
     let projects = list_projects()?;
+    let mut ordered_tasks = Vec::new();
+    let mut seen = HashSet::new();
     for entry in &group.entries {
         let Some(project) = projects
             .iter()
@@ -1171,8 +1706,18 @@ pub fn stop_workspace_group(group_query: &str) -> Result<WorkspaceGroupView, Str
         else {
             continue;
         };
-        if task_is_running(&project.id, &entry.task_id)? {
-            stop_task_inner(project, &entry.task_id)?;
+        for task in task_start_order(project, std::slice::from_ref(&entry.task_id))? {
+            if seen.insert((project.id.clone(), task.id.clone())) {
+                ordered_tasks.push((project.id.clone(), task.id));
+            }
+        }
+    }
+    for (project_id, task_id) in ordered_tasks.into_iter().rev() {
+        let Some(project) = projects.iter().find(|project| project.id == project_id) else {
+            continue;
+        };
+        if task_is_running(&project.id, &task_id)? {
+            stop_task_inner(project, &task_id)?;
         }
     }
     workspace_group_view(group)
@@ -1235,6 +1780,7 @@ fn workspace_group_view(group: WorkspaceGroup) -> Result<WorkspaceGroupView, Str
                 ProcessStatus::Stopped
             },
             exit_reason: runtime.exit_reason,
+            state: runtime.state,
         });
     }
     let running_task_count = tasks
@@ -1245,11 +1791,26 @@ fn workspace_group_view(group: WorkspaceGroup) -> Result<WorkspaceGroupView, Str
         .iter()
         .filter(|task| task.exit_reason == Some(TaskExitReason::Crashed))
         .count();
+    let ready_task_count = tasks
+        .iter()
+        .filter(|task| {
+            matches!(
+                task.state,
+                TaskLifecycleState::Ready | TaskLifecycleState::Running
+            )
+        })
+        .count();
+    let blocked_task_count = tasks
+        .iter()
+        .filter(|task| task.state == TaskLifecycleState::Blocked)
+        .count();
     Ok(WorkspaceGroupView {
         group,
         tasks,
         running_task_count,
         crashed_task_count,
+        ready_task_count,
+        blocked_task_count,
     })
 }
 
@@ -1766,6 +2327,27 @@ fn read_task_runtime(project_id: &str, task_id: &str) -> Result<RuntimeInfo, Str
         } else {
             TaskExitReason::Crashed
         });
+        runtime.state = if runtime.exit_code == Some(0) {
+            TaskLifecycleState::Exited
+        } else {
+            TaskLifecycleState::Crashed
+        };
+        if runtime.state == TaskLifecycleState::Crashed && runtime.last_error.is_none() {
+            runtime.last_error = Some(
+                runtime
+                    .exit_code
+                    .map(|code| format!("Process exited with code {code}"))
+                    .unwrap_or_else(|| "Process exited unexpectedly".to_string()),
+            );
+        }
+        changed = true;
+    } else if runtime.pid.is_some()
+        && matches!(
+            runtime.state,
+            TaskLifecycleState::Stopped | TaskLifecycleState::Exited | TaskLifecycleState::Crashed
+        )
+    {
+        runtime.state = TaskLifecycleState::Running;
         changed = true;
     } else if runtime.pid.is_none()
         && runtime.exit_reason == Some(TaskExitReason::Crashed)
@@ -1778,6 +2360,27 @@ fn read_task_runtime(project_id: &str, task_id: &str) -> Result<RuntimeInfo, Str
         } else {
             TaskExitReason::Crashed
         });
+        runtime.state = if exit_code == 0 {
+            TaskLifecycleState::Exited
+        } else {
+            TaskLifecycleState::Crashed
+        };
+        if exit_code != 0 && runtime.last_error.is_none() {
+            runtime.last_error = Some(format!("Process exited with code {exit_code}"));
+        }
+        changed = true;
+    } else if runtime.pid.is_none()
+        && runtime.state == TaskLifecycleState::Stopped
+        && matches!(
+            runtime.exit_reason,
+            Some(TaskExitReason::Exited | TaskExitReason::Crashed)
+        )
+    {
+        runtime.state = match runtime.exit_reason {
+            Some(TaskExitReason::Exited) => TaskLifecycleState::Exited,
+            Some(TaskExitReason::Crashed) => TaskLifecycleState::Crashed,
+            _ => TaskLifecycleState::Stopped,
+        };
         changed = true;
     }
     if changed {
@@ -1986,6 +2589,165 @@ fn listening_ports(process_ids: &[u32]) -> Vec<TaskPort> {
     {
         let _ = process_ids;
         Vec::new()
+    }
+}
+
+fn expected_task_port(task: &ProjectTask) -> Option<u16> {
+    match task.readiness.kind {
+        TaskReadinessKind::Port => task.readiness.value.parse().ok(),
+        TaskReadinessKind::Http => parse_http_target(&task.readiness.value)
+            .ok()
+            .filter(|target| is_local_host(&target.host))
+            .map(|target| target.port),
+        TaskReadinessKind::Process | TaskReadinessKind::Log => infer_command_port(&task.command),
+    }
+}
+
+fn is_local_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "0.0.0.0")
+}
+
+fn task_port_conflict(task: &ProjectTask, ignored_process_ids: &[u32]) -> Option<TaskPortConflict> {
+    port_conflict(expected_task_port(task)?, ignored_process_ids)
+}
+
+fn port_conflict(port: u16, ignored_process_ids: &[u32]) -> Option<TaskPortConflict> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("lsof")
+            .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-t"])
+            .output()
+            .ok()?;
+        for value in String::from_utf8_lossy(&output.stdout).lines() {
+            let Ok(pid) = value.trim().parse::<u32>() else {
+                continue;
+            };
+            if ignored_process_ids.contains(&pid) {
+                continue;
+            }
+            let (process_name, command) = process_details(pid);
+            return Some(TaskPortConflict {
+                port,
+                pid,
+                process_name,
+                command,
+            });
+        }
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (port, ignored_process_ids);
+        None
+    }
+}
+
+fn process_details(pid: u32) -> (String, String) {
+    let process_name = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "Unknown process".to_string());
+    let process_name = Path::new(&process_name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(&process_name)
+        .to_string();
+    let command = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| process_name.clone());
+    (process_name, command)
+}
+
+fn port_conflict_message(conflict: &TaskPortConflict) -> String {
+    format!(
+        "Port {} is already in use by {} (pid {})",
+        conflict.port, conflict.process_name, conflict.pid
+    )
+}
+
+fn readiness_label(readiness: &TaskReadiness) -> String {
+    match readiness.kind {
+        TaskReadinessKind::Process => "process started".to_string(),
+        TaskReadinessKind::Port => format!("port {} listening", readiness.value),
+        TaskReadinessKind::Http => format!("{} responding", readiness.value),
+        TaskReadinessKind::Log => format!("log contains “{}”", readiness.value),
+    }
+}
+
+fn http_endpoint_responds(value: &str) -> bool {
+    let Ok(target) = parse_http_target(value) else {
+        return false;
+    };
+    let host = if target.host == "0.0.0.0" {
+        "127.0.0.1"
+    } else {
+        &target.host
+    };
+    let Ok(addresses) = (host, target.port).to_socket_addrs() else {
+        return false;
+    };
+    for address in addresses {
+        let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(450))
+        else {
+            continue;
+        };
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(450)));
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(450)));
+        let request = format!(
+            "GET {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            target.path, target.host
+        );
+        if stream.write_all(request.as_bytes()).is_err() {
+            continue;
+        }
+        let mut response = [0_u8; 16];
+        if let Ok(length) = stream.read(&mut response)
+            && length >= 5
+            && response.starts_with(b"HTTP/")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn task_log_contains(project: &Project, task: &ProjectTask, pattern: &str) -> bool {
+    let Ok(path) = task_log_file(&project.id, &task.id) else {
+        return false;
+    };
+    let Ok(mut file) = File::open(path) else {
+        return false;
+    };
+    let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
+        return false;
+    };
+    if length > LOG_READ_LIMIT && file.seek(SeekFrom::End(-(LOG_READ_LIMIT as i64))).is_err() {
+        return false;
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).is_ok() && contents.contains(pattern)
+}
+
+fn task_readiness_satisfied(project: &Project, task: &ProjectTask, pid: u32) -> bool {
+    match task.readiness.kind {
+        TaskReadinessKind::Process => true,
+        TaskReadinessKind::Port => {
+            let port = task.readiness.value.parse::<u16>().unwrap_or_default();
+            let (_, _, process_ids) = process_group_metrics(pid);
+            listening_ports(&process_ids)
+                .iter()
+                .any(|candidate| candidate.port == port)
+        }
+        TaskReadinessKind::Http => http_endpoint_responds(&task.readiness.value),
+        TaskReadinessKind::Log => task_log_contains(project, task, &task.readiness.value),
     }
 }
 
@@ -3193,8 +3955,10 @@ fn display_error(error: impl std::fmt::Display) -> String {
 mod tests {
     use super::{
         commit_message_prompt, migrate_project_tasks, normalize_git_remote, parse_git_file_record,
-        read_git_commit_detail, read_git_history, read_git_workspace, revert_git_commit_in_path,
-        run_git_checked, sanitize_commit_message, task_display_name, validate_git_path,
+        parse_http_target, read_git_commit_detail, read_git_history, read_git_workspace,
+        revert_git_commit_in_path, run_git_checked, sanitize_commit_message, task_display_name,
+        task_readiness_for_command, task_start_order, validate_git_path,
+        validate_task_dependency_graph,
     };
     use std::fs;
     use uuid::Uuid;
@@ -3226,6 +3990,63 @@ mod tests {
         assert_eq!(task_display_name("dev:api"), "Dev · API");
         assert_eq!(task_display_name("type-check"), "Type · Check");
         assert_eq!(task_display_name("db_seed"), "DB · Seed");
+    }
+
+    #[test]
+    fn infers_common_port_readiness_and_parses_http_targets() {
+        let readiness = task_readiness_for_command("vite --port 43123");
+        assert_eq!(readiness.kind, super::TaskReadinessKind::Port);
+        assert_eq!(readiness.value, "43123");
+
+        let readiness = task_readiness_for_command("PORT=43124 pnpm dev");
+        assert_eq!(readiness.kind, super::TaskReadinessKind::Port);
+        assert_eq!(readiness.value, "43124");
+
+        let target = parse_http_target("http://localhost:43125/health").expect("HTTP target");
+        assert_eq!(target.host, "localhost");
+        assert_eq!(target.port, 43125);
+        assert_eq!(target.path, "/health");
+        assert!(parse_http_target("https://localhost:43125/health").is_err());
+    }
+
+    #[test]
+    fn orders_transitive_dependencies_before_the_target() {
+        let project: super::Project = serde_json::from_str(
+            r#"{
+                "id": "project-1",
+                "name": "Stack",
+                "path": "/tmp/stack",
+                "command": "run web",
+                "favorite": false,
+                "sortOrder": 100,
+                "tasks": [
+                    {"id":"web","name":"Web","command":"run web","autoStart":true,"dependsOn":["api"]},
+                    {"id":"worker","name":"Worker","command":"run worker","autoStart":false,"dependsOn":["api"]},
+                    {"id":"api","name":"API","command":"run api","autoStart":true,"dependsOn":["db"]},
+                    {"id":"db","name":"DB","command":"run db","autoStart":true}
+                ]
+            }"#,
+        )
+        .expect("project");
+        let order = task_start_order(&project, &["web".to_string(), "worker".to_string()])
+            .expect("dependency order")
+            .into_iter()
+            .map(|task| task.id)
+            .collect::<Vec<_>>();
+        assert_eq!(order, ["db", "api", "web", "worker"]);
+    }
+
+    #[test]
+    fn rejects_task_dependency_cycles() {
+        let tasks: Vec<super::ProjectTask> = serde_json::from_str(
+            r#"[
+                {"id":"web","name":"Web","command":"run web","dependsOn":["api"]},
+                {"id":"api","name":"API","command":"run api","dependsOn":["web"]}
+            ]"#,
+        )
+        .expect("tasks");
+        let error = validate_task_dependency_graph(&tasks).expect_err("cycle should fail");
+        assert!(error.contains("cycle"));
     }
 
     #[test]

@@ -77,6 +77,8 @@ const EMPTY_FORM: ProjectForm = {
       name: "Dev",
       command: "",
       autoStart: true,
+      dependsOn: [],
+      readiness: { kind: "process", value: "", timeoutSeconds: 30 },
     },
   ],
   favorite: false,

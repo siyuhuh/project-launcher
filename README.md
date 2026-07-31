@@ -1,28 +1,54 @@
 # Runbox
 
-A tiny desktop and terminal launcher for local development projects.
+**A local control plane for the projects running on your Mac.**<br>
+**把散落在终端里的本地开发项目，收进一个可以启动、观察和管理的工作台。**
 
-Runbox remembers each project directory and its development tasks, then gives you one shared control plane:
+[English](#english-overview) · [中文介绍](#中文介绍) · [Quick start](#quick-start)
 
-- click **Run / Stop** in the desktop app;
-- run Web, API, Worker, and other project tasks independently or together;
-- see localhost ports, CPU, memory, uptime, and abnormal exits for every task;
-- combine tasks from multiple projects into one-click workspace groups;
-- see whether a project is actually running;
-- read recent output without finding the right terminal tab;
-- pin the few projects you use every day and sort by last opened, name, or manual order;
-- filter by status or project tool and see when each project was last opened;
-- switch between comfortable cards, compact cards, and a Notion-style table;
-- inspect each project's Git branch, clean/changed state, and ahead/behind counts;
-- review diffs and commit history, stage files, commit, switch branches, and sync a repository without leaving Runbox;
-- open a project in a detected editor, Terminal, Finder, or its remote repository;
-- draft commit messages with a local Ollama model, Codex CLI, or Cursor Agent;
-- resize the entire interface and switch between locally saved color themes;
-- mirror Finder tag colors from the project folders on macOS;
-- use the same entries from Terminal with `p my-project`;
-- keep processes running when the desktop window is closed.
+## English overview
 
-The interface is deliberately quiet: a compact Fira Code, terminal-inspired dashboard without Docker or a heavyweight embedded browser.
+As a local workspace grows, the difficult part is often no longer the code. It is remembering which
+terminal tab runs the Web app, which command starts the API, what port a service chose, and why a
+Worker stopped.
+
+Runbox turns project folders and development commands into one visible workspace:
+
+- **Launch projects without memorizing commands.** Run Web, API, Worker, and other tasks
+  independently or together.
+- **See what is actually happening.** Inspect localhost ports, CPU, memory, uptime, logs, and
+  abnormal exits for every task.
+- **Start in a reliable order.** Declare task dependencies and wait for a process, port, HTTP
+  endpoint, or log message before launching the next service.
+- **Manage Git without changing context.** Review diffs and history, stage files, commit, switch
+  branches, and sync repositories from the same window.
+- **Start a complete stack with one click.** Combine tasks from multiple projects into reusable
+  Workspace Groups.
+- **Use the desktop app or Terminal.** The companion `p` command reads the same projects, runtime
+  state, and logs.
+- **Keep the setup local and lightweight.** Runbox uses the commands and tools already installed on
+  the Mac. It does not require Docker or take over a project's environment.
+
+The interface is deliberately quiet: a compact, terminal-inspired dashboard with adjustable
+scaling and locally saved themes.
+
+## 中文介绍
+
+本地项目一多，最先失控的往往不是代码，而是终端：哪个标签页在跑 Web，API
+该用哪条命令，服务占了什么端口，Worker 又为什么突然退出。
+
+Runbox 把项目目录和开发命令整理成一个可见的本地工作台：
+
+- **不用再记启动命令。** Web、API、Worker 等任务既能单独运行，也能随项目一起启动。
+- **真正看见项目状态。** 直接查看 localhost 地址、端口、CPU、内存、运行时间、日志和异常退出码。
+- **按可靠顺序启动。** 为任务设置依赖，并通过进程、端口、HTTP 地址或日志关键字判断是否就绪，
+  上一步 Ready 后才启动下一步。
+- **少切一次应用。** 在同一个窗口里查看 Git diff 与历史、暂存文件、提交、切换分支和同步仓库。
+- **一键拉起完整开发环境。** 用 Workspace Groups 把不同项目里的任务组合成可复用的工作区。
+- **桌面与终端共用一套数据。** 在 App 里点击运行，也可以直接输入 `p 项目名`。
+- **本地、轻量、不接管项目。** Runbox 使用 Mac 上已经安装的命令与开发工具，不要求 Docker，
+  也不会改变项目原本的技术栈。
+
+它更像一个“本地开发项目控制台”，而不是新的容器平台或 IDE。
 
 ## Quick start
 
@@ -226,6 +252,22 @@ For running tasks, Runbox aggregates CPU and memory across the full process grou
 listening TCP ports. Detected addresses open as `localhost` links. When a command exits, Runbox
 records its exit code and distinguishes successful completion, a manual stop, and an abnormal exit.
 
+Each task can also define a readiness check and dependencies:
+
+- **Process** — ready after the command stays alive through the startup grace period;
+- **Port** — ready when the configured TCP port is listening from that task's process group;
+- **HTTP** — ready when an `http://` endpoint responds;
+- **Log phrase** — ready when recent output contains the configured text.
+
+Runbox resolves transitive dependencies, starts them in topological order, and waits up to the
+configured timeout before continuing. The Health panel exposes the full lifecycle—Waiting,
+Starting, Running, Ready, Blocked, Exited, and Crashed. If an expected port is occupied before
+launch, Runbox blocks the task and shows the process name, PID, and command using it.
+
+中文说明：每个任务都可以设置“启动前依赖”和“就绪条件”。Runbox 会先启动依赖任务，等待它们
+真正 Ready，再继续启动下游服务；如果超时、异常退出或端口被占用，本次启动会停止并回滚由它
+新拉起的任务，避免留下半套环境。
+
 Existing projects migrate automatically: their saved command becomes the primary `Dev` task and
 keeps its existing runtime and log files.
 
@@ -235,6 +277,11 @@ Open **Workspace groups** from the sidebar to combine tasks across projects. A g
 stop a complete local stack—such as Web, API, and Worker—without changing the individual project
 configuration. Groups are also available from Terminal with `p workspaces` and
 `p workspace <name>`.
+
+Group entries run in the order they were selected. Each entry still honors its own same-project
+dependencies and readiness check, so a Web → API → Worker workspace advances only when the current
+step is actually usable. On failure, Runbox reports the blocked task and rolls back processes it
+started for that launch.
 
 ## Appearance preferences
 
@@ -268,12 +315,6 @@ Runbox keeps machine-specific paths and logs out of Git. On macOS they live in:
 - Tauri 2 / Rust for process and filesystem control
 - React 19 / TypeScript / Vite for the UI
 - One small Rust core shared by the desktop app and CLI
-
-## 中文说明
-
-Runbox 就是“项目指令收藏夹”：在 App 里添加项目目录和启动命令，以后点一下即可启动或停止，也能查看状态和日志。安装终端命令后，还可以直接运行 `p 项目名`。两种入口共用同一份配置。
-
-不需要 Docker。Docker 仍然可以作为某个项目的具体命令，例如 `docker compose up`。
 
 ## License
 

@@ -2,10 +2,12 @@ import { type FormEvent, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   FolderOpen,
+  GitMerge,
   GripVertical,
   LoaderCircle,
   Plus,
   RefreshCw,
+  ShieldCheck,
   Trash2,
   X,
 } from "lucide-react";
@@ -91,6 +93,8 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
           name: `Task ${current.tasks.length + 1}`,
           command: "",
           autoStart: false,
+          dependsOn: [],
+          readiness: { kind: "process", value: "", timeoutSeconds: 30 },
         },
       ],
     }));
@@ -99,12 +103,26 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
   function removeTask(index: number) {
     setForm((current) => {
       if (current.tasks.length === 1) return current;
+      const removedTaskId = current.tasks[index]?.id;
       const tasks = current.tasks.filter((_, taskIndex) => taskIndex !== index);
       return {
         ...current,
-        tasks,
+        tasks: tasks.map((task) => ({
+          ...task,
+          dependsOn: task.dependsOn.filter((dependency) => dependency !== removedTaskId),
+        })),
         command: tasks[0]?.command ?? "",
       };
+    });
+  }
+
+  function toggleDependency(index: number, dependencyId: string) {
+    const task = form.tasks[index];
+    const selected = task.dependsOn.includes(dependencyId);
+    updateTask(index, {
+      dependsOn: selected
+        ? task.dependsOn.filter((id) => id !== dependencyId)
+        : [...task.dependsOn, dependencyId],
     });
   }
 
@@ -226,6 +244,93 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                         />
                       </span>
                     </label>
+                    <details className="task-reliability-settings">
+                      <summary>
+                        <ShieldCheck size={12} />
+                        <span>Reliability</span>
+                        <small>{readinessSummary(task)}</small>
+                      </summary>
+                      <div className="task-reliability-grid">
+                        <label>
+                          <span>Ready when</span>
+                          <select
+                            value={task.readiness.kind}
+                            onChange={(event) =>
+                              updateTask(index, {
+                                readiness: {
+                                  ...task.readiness,
+                                  kind: event.target.value as ProjectTask["readiness"]["kind"],
+                                  value: "",
+                                },
+                              })
+                            }
+                          >
+                            <option value="process">Process stays running</option>
+                            <option value="port">Port is listening</option>
+                            <option value="http">HTTP endpoint responds</option>
+                            <option value="log">Log contains text</option>
+                          </select>
+                        </label>
+                        {task.readiness.kind !== "process" ? (
+                          <label className="task-readiness-value">
+                            <span>{readinessValueLabel(task.readiness.kind)}</span>
+                            <input
+                              type={task.readiness.kind === "port" ? "number" : "text"}
+                              min={task.readiness.kind === "port" ? 1 : undefined}
+                              max={task.readiness.kind === "port" ? 65535 : undefined}
+                              value={task.readiness.value}
+                              onChange={(event) =>
+                                updateTask(index, {
+                                  readiness: { ...task.readiness, value: event.target.value },
+                                })
+                              }
+                              placeholder={readinessPlaceholder(task.readiness.kind)}
+                              required
+                            />
+                          </label>
+                        ) : null}
+                        <label className="task-readiness-timeout">
+                          <span>Timeout</span>
+                          <span className="task-timeout-input">
+                            <input
+                              type="number"
+                              min={1}
+                              max={300}
+                              value={task.readiness.timeoutSeconds}
+                              onChange={(event) =>
+                                updateTask(index, {
+                                  readiness: {
+                                    ...task.readiness,
+                                    timeoutSeconds: Number(event.target.value),
+                                  },
+                                })
+                              }
+                              required
+                            />
+                            <small>sec</small>
+                          </span>
+                        </label>
+                      </div>
+                      {form.tasks.length > 1 ? (
+                        <div className="task-dependency-picker">
+                          <span><GitMerge size={11} /> Starts after</span>
+                          <div>
+                            {form.tasks.map((candidate, candidateIndex) =>
+                              candidateIndex === index ? null : (
+                                <button
+                                  key={candidate.id}
+                                  type="button"
+                                  data-active={task.dependsOn.includes(candidate.id)}
+                                  onClick={() => toggleDependency(index, candidate.id)}
+                                >
+                                  {candidate.name || `Task ${candidateIndex + 1}`}
+                                </button>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </details>
                   </div>
                   <button
                     className="task-remove-button"
@@ -271,6 +376,31 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
   );
 }
 
+function readinessSummary(task: ProjectTask): string {
+  switch (task.readiness.kind) {
+    case "port":
+      return task.readiness.value ? `Port ${task.readiness.value}` : "Port check";
+    case "http":
+      return task.readiness.value || "HTTP check";
+    case "log":
+      return task.readiness.value ? `Log: ${task.readiness.value}` : "Log check";
+    default:
+      return "Process check";
+  }
+}
+
+function readinessValueLabel(kind: ProjectTask["readiness"]["kind"]): string {
+  if (kind === "port") return "Port";
+  if (kind === "http") return "HTTP URL";
+  return "Log phrase";
+}
+
+function readinessPlaceholder(kind: ProjectTask["readiness"]["kind"]): string {
+  if (kind === "port") return "3000";
+  if (kind === "http") return "http://localhost:3000/health";
+  return "ready in";
+}
+
 function withProjectTasks(project: ProjectForm): ProjectForm {
   if (project.tasks.length > 0) return project;
   return {
@@ -281,6 +411,8 @@ function withProjectTasks(project: ProjectForm): ProjectForm {
         name: "Dev",
         command: project.command,
         autoStart: true,
+        dependsOn: [],
+        readiness: { kind: "process", value: "", timeoutSeconds: 30 },
       },
     ],
   };

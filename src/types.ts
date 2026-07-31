@@ -35,14 +35,39 @@ export interface ProjectTask {
   name: string;
   command: string;
   autoStart: boolean;
+  dependsOn: string[];
+  readiness: TaskReadiness;
 }
 
 export type TaskExitReason = "stopped" | "exited" | "crashed";
+export type TaskLifecycleState =
+  | "stopped"
+  | "waiting"
+  | "starting"
+  | "running"
+  | "ready"
+  | "exited"
+  | "crashed"
+  | "blocked";
+export type TaskReadinessKind = "process" | "port" | "http" | "log";
+
+export interface TaskReadiness {
+  kind: TaskReadinessKind;
+  value: string;
+  timeoutSeconds: number;
+}
 
 export interface TaskPort {
   host: string;
   port: number;
   url: string;
+}
+
+export interface TaskPortConflict {
+  port: number;
+  pid: number;
+  processName: string;
+  command: string;
 }
 
 export interface ProjectTaskView extends ProjectTask {
@@ -52,9 +77,14 @@ export interface ProjectTaskView extends ProjectTask {
   stoppedAt: number | null;
   exitCode: number | null;
   exitReason: TaskExitReason | null;
+  state: TaskLifecycleState;
+  readyAt: number | null;
+  lastError: string | null;
   cpuPercent: number;
   memoryBytes: number;
   ports: TaskPort[];
+  expectedPort: number | null;
+  portConflict: TaskPortConflict | null;
 }
 
 export interface WorkspaceGroupEntry {
@@ -73,12 +103,15 @@ export interface WorkspaceGroupTaskView extends WorkspaceGroupEntry {
   taskName: string;
   status: ProcessStatus;
   exitReason: TaskExitReason | null;
+  state: TaskLifecycleState;
 }
 
 export interface WorkspaceGroupView extends WorkspaceGroup {
   tasks: WorkspaceGroupTaskView[];
   runningTaskCount: number;
   crashedTaskCount: number;
+  readyTaskCount: number;
+  blockedTaskCount: number;
 }
 
 export interface GitStatus {

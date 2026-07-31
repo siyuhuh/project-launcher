@@ -6,11 +6,15 @@ import {
   Cpu,
   ExternalLink,
   FileText,
+  GitMerge,
   HardDrive,
   LoaderCircle,
   Network,
   Play,
+  ShieldCheck,
   Square,
+  Timer,
+  TriangleAlert,
   Trash2,
   X,
 } from "lucide-react";
@@ -218,6 +222,27 @@ export function ProjectTasksPanel({
                 />
                 <div className="task-health-scroll">
                   <HealthSummary task={selectedTask} />
+                  <TaskReliability task={selectedTask} tasks={tasks} />
+                  {selectedTask.portConflict ? (
+                    <section className="task-runtime-notice" data-tone="error">
+                      <TriangleAlert size={14} />
+                      <div>
+                        <strong>Port {selectedTask.portConflict.port} is already in use</strong>
+                        <span>
+                          {selectedTask.portConflict.processName} · PID {selectedTask.portConflict.pid}
+                        </span>
+                        <code>{selectedTask.portConflict.command}</code>
+                      </div>
+                    </section>
+                  ) : selectedTask.lastError ? (
+                    <section className="task-runtime-notice" data-tone="error">
+                      <CircleAlert size={14} />
+                      <div>
+                        <strong>{taskStateLabel(selectedTask)}</strong>
+                        <span>{selectedTask.lastError}</span>
+                      </div>
+                    </section>
+                  ) : null}
                   <section className="task-port-section">
                     <header>
                       <div><Network size={13} /> Listening ports</div>
@@ -302,7 +327,7 @@ function TaskRow({
           <code>{task.command}</code>
           <small>
             {task.status === "running"
-              ? `${formatCpu(task.cpuPercent)} CPU · ${formatMemory(task.memoryBytes)}`
+              ? `${taskStateLabel(task)} · ${formatCpu(task.cpuPercent)} CPU · ${formatMemory(task.memoryBytes)}`
               : taskStateLabel(task)}
           </small>
         </span>
@@ -341,7 +366,10 @@ function TaskHealthHeader({
       <div>
         <span className="task-status-dot" />
         <div>
-          <h3>{task.name}</h3>
+          <div className="task-health-title">
+            <h3>{task.name}</h3>
+            <span data-state={task.state}>{taskStateLabel(task)}</span>
+          </div>
           <code>$ {task.command}</code>
         </div>
       </div>
@@ -378,14 +406,14 @@ function HealthSummary({ task }: { task: ProjectTaskView }) {
       />
       <HealthMetric
         icon={<Activity size={13} />}
-        label={task.status === "running" ? "Uptime" : "Last state"}
-        value={task.status === "running" ? formatUptime(task.startedAt) : taskStateLabel(task)}
-        tone={task.exitReason === "crashed" ? "error" : undefined}
+        label="State"
+        value={taskStateLabel(task)}
+        tone={task.state === "crashed" || task.state === "blocked" ? "error" : undefined}
       />
       <HealthMetric
         icon={task.exitReason === "crashed" ? <CircleAlert size={13} /> : <CircleStop size={13} />}
-        label={task.pid ? "Process" : "Exit code"}
-        value={task.pid ? `PID ${task.pid}` : task.exitCode === null ? "—" : String(task.exitCode)}
+        label={taskProcessLabel(task)}
+        value={taskProcessSummary(task)}
         tone={task.exitReason === "crashed" ? "error" : undefined}
       />
     </section>
@@ -411,10 +439,47 @@ function HealthMetric({
   );
 }
 
-function taskHealth(task: ProjectTaskView): "running" | "crashed" | "exited" | "stopped" {
-  if (task.status === "running") return "running";
-  if (task.exitReason === "crashed") return "crashed";
-  if (task.exitReason === "exited") return "exited";
+function TaskReliability({ task, tasks }: { task: ProjectTaskView; tasks: ProjectTaskView[] }) {
+  const dependencyNames = task.dependsOn.map(
+    (dependencyId) => tasks.find((candidate) => candidate.id === dependencyId)?.name ?? dependencyId,
+  );
+  return (
+    <section className="task-reliability-summary">
+      <div>
+        <ShieldCheck size={13} />
+        <span>
+          <small>Ready when</small>
+          <strong>{readinessDescription(task)}</strong>
+        </span>
+      </div>
+      <div>
+        <GitMerge size={13} />
+        <span>
+          <small>Starts after</small>
+          <strong>{dependencyNames.length > 0 ? dependencyNames.join(" · ") : "No dependencies"}</strong>
+        </span>
+      </div>
+      <div>
+        <Timer size={13} />
+        <span>
+          <small>Timeout</small>
+          <strong>{task.readiness.timeoutSeconds}s</strong>
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function taskHealth(
+  task: ProjectTaskView,
+): "running" | "ready" | "waiting" | "starting" | "blocked" | "crashed" | "exited" | "stopped" {
+  if (task.state === "ready") return "ready";
+  if (task.state === "waiting") return "waiting";
+  if (task.state === "starting") return "starting";
+  if (task.state === "blocked") return "blocked";
+  if (task.state === "crashed") return "crashed";
+  if (task.state === "exited") return "exited";
+  if (task.status === "running" || task.state === "running") return "running";
   return "stopped";
 }
 
@@ -437,14 +502,48 @@ function TaskActionIcon({
 }
 
 function taskStateLabel(task: ProjectTaskView): string {
-  if (task.exitReason === "crashed") {
-    return task.exitCode === null ? "Exited unexpectedly" : `Crashed · exit ${task.exitCode}`;
+  switch (task.state) {
+    case "ready":
+      return "Ready";
+    case "running":
+      return "Running";
+    case "waiting":
+      return "Waiting";
+    case "starting":
+      return "Starting";
+    case "blocked":
+      return "Blocked";
+    case "crashed":
+      return task.exitCode === null ? "Crashed" : `Crashed · exit ${task.exitCode}`;
+    case "exited":
+      return task.exitCode === null ? "Completed" : `Completed · exit ${task.exitCode}`;
+    case "stopped":
+      return task.exitReason === "stopped" ? "Stopped by you" : "Stopped";
   }
-  if (task.exitReason === "exited") {
-    return task.exitCode === null ? "Completed" : `Completed · exit ${task.exitCode}`;
+}
+
+function readinessDescription(task: ProjectTaskView): string {
+  switch (task.readiness.kind) {
+    case "process":
+      return "Process stays alive";
+    case "port":
+      return `Port ${task.readiness.value} listens`;
+    case "http":
+      return task.readiness.value;
+    case "log":
+      return `Log contains “${task.readiness.value}”`;
   }
-  if (task.exitReason === "stopped") return "Stopped by you";
-  return "Not started";
+}
+
+function taskProcessSummary(task: ProjectTaskView): string {
+  if (task.status === "running") return formatUptime(task.startedAt);
+  if (task.pid) return `PID ${task.pid}`;
+  return task.exitCode === null ? "—" : String(task.exitCode);
+}
+
+function taskProcessLabel(task: ProjectTaskView): string {
+  if (task.status === "running") return "Uptime";
+  return task.pid ? "Process" : "Exit code";
 }
 
 function formatCpu(value: number): string {

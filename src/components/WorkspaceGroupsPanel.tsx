@@ -160,7 +160,7 @@ export function WorkspaceGroupsPanel({
           <div>
             <p><Layers3 size={13} /> WORKSPACE GROUPS</p>
             <h2 id="workspace-groups-title">Start your stack together</h2>
-            <span>Combine project tasks into reusable local workspaces.</span>
+            <span>Run tasks in order and wait for each one to become ready.</span>
           </div>
           <button className="panel-close-button" onClick={onClose} aria-label="Close workspaces">
             <X size={16} />
@@ -199,7 +199,8 @@ export function WorkspaceGroupsPanel({
                     <span>
                       <strong>{group.name}</strong>
                       <small>
-                        {group.runningTaskCount}/{group.tasks.length} running
+                        {group.readyTaskCount}/{group.tasks.length} ready
+                        {group.blockedTaskCount > 0 ? ` · ${group.blockedTaskCount} blocked` : ""}
                       </small>
                     </span>
                     <i data-running={group.runningTaskCount > 0} />
@@ -298,6 +299,7 @@ function GroupEditor({
               {project.tasks.map((task) => {
                 const entry = { projectId: project.id, taskId: task.id };
                 const selected = hasEntry(draft.entries, entry);
+                const order = draft.entries.findIndex((item) => sameEntry(item, entry)) + 1;
                 return (
                   <button
                     key={task.id}
@@ -311,7 +313,7 @@ function GroupEditor({
                       <strong>{task.name}</strong>
                       <code>{task.command}</code>
                     </span>
-                    {task.autoStart ? <small>AUTO</small> : null}
+                    {selected ? <small className="workspace-task-order">#{order}</small> : null}
                   </button>
                 );
               })}
@@ -320,7 +322,7 @@ function GroupEditor({
         ))}
       </div>
       <footer>
-        <span>{draft.entries.length} tasks selected</span>
+        <span>{draft.entries.length} tasks · selection sets launch order</span>
         <button className="secondary-button" onClick={onCancel}>Cancel</button>
         <button
           className="primary-button"
@@ -358,8 +360,9 @@ function GroupDetail({
           <p>WORKSPACE</p>
           <h3>{group.name}</h3>
           <span>
-            {group.runningTaskCount} of {group.tasks.length} tasks running
-            {group.crashedTaskCount > 0 ? ` · ${group.crashedTaskCount} unhealthy` : ""}
+            {group.readyTaskCount} of {group.tasks.length} tasks ready
+            {group.blockedTaskCount > 0 ? ` · ${group.blockedTaskCount} blocked` : ""}
+            {group.crashedTaskCount > 0 ? ` · ${group.crashedTaskCount} crashed` : ""}
           </span>
         </div>
         <div>
@@ -378,19 +381,19 @@ function GroupDetail({
         </div>
       </header>
       <div className="workspace-group-task-list">
-        {group.tasks.map((task) => (
+        {group.tasks.map((task, index) => (
           <div
             key={`${task.projectId}:${task.taskId}`}
             data-status={task.status}
-            data-crashed={task.exitReason === "crashed"}
+            data-state={task.state}
           >
             <span className="workspace-task-status">
-              {task.exitReason === "crashed" && task.status !== "running" ? (
+              {task.state === "crashed" || task.state === "blocked" ? (
                 <CircleAlert size={12} />
               ) : null}
             </span>
             <span>
-              <strong>{task.taskName}</strong>
+              <strong><i>{index + 1}</i>{task.taskName}</strong>
               <small>{task.projectName}</small>
             </span>
             <em>{workspaceTaskState(task)}</em>
@@ -422,8 +425,24 @@ function GroupActionIcon({ pending, running }: { pending: boolean; running: bool
 }
 
 function workspaceTaskState(task: WorkspaceGroupTaskView): string {
-  if (task.status === "running") return "Running";
-  return task.exitReason === "crashed" ? "Crashed" : "Stopped";
+  switch (task.state) {
+    case "ready":
+      return "Ready";
+    case "running":
+      return "Running";
+    case "waiting":
+      return "Waiting";
+    case "starting":
+      return "Starting";
+    case "blocked":
+      return "Blocked";
+    case "crashed":
+      return "Crashed";
+    case "exited":
+      return "Exited";
+    case "stopped":
+      return "Stopped";
+  }
 }
 
 function errorMessage(error: unknown): string {
