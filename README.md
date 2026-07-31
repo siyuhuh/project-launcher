@@ -1,9 +1,31 @@
-# Runbox
+<p align="center">
+  <img src="src-tauri/icons/128x128.png" width="88" alt="Runbox app icon">
+</p>
 
-**A local control plane for the projects running on your Mac.**<br>
-**把散落在终端里的本地开发项目，收进一个可以启动、观察和管理的工作台。**
+<h1 align="center">Runbox</h1>
 
-[English](#english-overview) · [中文介绍](#中文介绍) · [Quick start](#quick-start)
+<p align="center">
+  <strong>A local control plane for the projects running on your Mac.</strong><br>
+  <strong>把散落在终端里的本地开发项目，收进一个可以启动、观察和管理的工作台。</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-Developer_Tool-111512?style=flat-square&logo=apple&logoColor=9bea78" alt="macOS">
+  <img src="https://img.shields.io/badge/Tauri-2-111512?style=flat-square&logo=tauri&logoColor=9bea78" alt="Tauri 2">
+  <img src="https://img.shields.io/badge/Rust-Core-111512?style=flat-square&logo=rust&logoColor=9bea78" alt="Rust core">
+  <img src="https://img.shields.io/badge/License-MIT-111512?style=flat-square&labelColor=111512&color=9bea78" alt="MIT license">
+</p>
+
+<p align="center">
+  <img src="docs/assets/runbox-hero.webp" width="1200" alt="Runbox organizes local development processes into one reliable workspace">
+</p>
+
+<p align="center">
+  <a href="#english-overview">English</a> ·
+  <a href="#中文介绍">中文介绍</a> ·
+  <a href="#product-tour--产品预览">Product tour</a> ·
+  <a href="#quick-start">Quick start</a>
+</p>
 
 ## English overview
 
@@ -49,6 +71,41 @@ Runbox 把项目目录和开发命令整理成一个可见的本地工作台：
   也不会改变项目原本的技术栈。
 
 它更像一个“本地开发项目控制台”，而不是新的容器平台或 IDE。
+
+## Product tour / 产品预览
+
+### One workspace for every local project / 所有本地项目，一个工作台
+
+Scan project activity, Git state, commands, and running tasks without searching through terminal
+tabs. Switch between comfortable cards, a compact grid, and a dense table view.
+
+在一个页面里查看项目运行状态、Git 变化与启动命令，并按需要切换卡片、紧凑或表格视图。
+
+<p align="center">
+  <img src="docs/assets/runbox-overview.jpg" width="1120" alt="Runbox project dashboard showing local projects, Git state, commands, and running tasks">
+</p>
+
+### Tasks that become reliably ready / 不只 Running，还要真正 Ready
+
+Inspect CPU, memory, uptime, localhost ports, logs, dependencies, and readiness checks for every
+task. Runbox can wait for a process, port, HTTP endpoint, or log phrase before moving on.
+
+每个任务都能看到 CPU、内存、端口、日志、依赖与就绪条件；Runbox 会等它真正 Ready 再继续。
+
+<p align="center">
+  <img src="docs/assets/runbox-health.jpg" width="1120" alt="Runbox Tasks and Health panel with API, Web, and Worker tasks in Ready state">
+</p>
+
+### Start a complete stack in order / 按顺序启动整套开发环境
+
+Workspace Groups launch Web, API, Worker, or tasks from different repositories in a saved order.
+Each step waits for readiness, and failed launches roll back the processes started in that run.
+
+Workspace Groups 会按保存顺序启动 Web、API、Worker；失败时回滚本次新启动的进程，避免留下半套环境。
+
+<p align="center">
+  <img src="docs/assets/runbox-workspaces.jpg" width="1120" alt="Runbox Workspace Groups showing API, Web, and Worker ready in launch order">
+</p>
 
 ## Quick start
 
