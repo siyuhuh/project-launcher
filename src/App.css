@@ -150,6 +150,10 @@ textarea:focus-visible {
   background: var(--bg);
 }
 
+.app-shell[data-sidebar-collapsed="true"] {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
 .window-drag-region {
   position: fixed;
   z-index: 30;
@@ -190,12 +194,43 @@ textarea:focus-visible {
 }
 
 .sidebar {
+  position: relative;
   display: flex;
   min-height: 0;
   flex-direction: column;
   padding: 54px 13px 16px;
   border-right: 1px solid var(--line);
   background: var(--sidebar);
+}
+
+.sidebar-collapse-button {
+  position: absolute;
+  z-index: 20;
+  top: 63px;
+  right: -11px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--quiet);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--control);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 28%);
+  cursor: pointer;
+  place-items: center;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.sidebar-collapse-button:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--green), transparent 55%);
+  background: var(--control-hover);
+}
+
+.sidebar-collapse-button:active {
+  transform: scale(0.94);
 }
 
 .brand {
@@ -220,6 +255,56 @@ textarea:focus-visible {
 
 .brand-cursor {
   color: var(--green);
+}
+
+.app-shell[data-sidebar-collapsed="true"] .sidebar {
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
+.app-shell[data-sidebar-collapsed="true"] .brand {
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.app-shell[data-sidebar-collapsed="true"] .brand-name,
+.app-shell[data-sidebar-collapsed="true"] .nav-label,
+.app-shell[data-sidebar-collapsed="true"] .nav-count,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-section-label,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-workspaces-button span,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-workspaces-button strong,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-settings-button span,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-settings-button kbd,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-add-button span,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-add-button kbd,
+.app-shell[data-sidebar-collapsed="true"] .cli-hint {
+  display: none;
+}
+
+.app-shell[data-sidebar-collapsed="true"] .nav-item,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-workspaces-button {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.app-shell[data-sidebar-collapsed="true"] .sidebar-workspaces-button {
+  margin-top: 18px;
+}
+
+.app-shell[data-sidebar-collapsed="true"] .sidebar-settings-button,
+.app-shell[data-sidebar-collapsed="true"] .sidebar-add-button {
+  width: 100%;
+  justify-content: center;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.app-shell[data-sidebar-collapsed="true"] .sidebar-settings-button {
+  margin-right: 0;
+  margin-left: 0;
 }
 
 .nav-list {
@@ -445,6 +530,7 @@ textarea:focus-visible {
 
 .content-header {
   display: flex;
+  min-width: 0;
   align-items: flex-end;
   justify-content: space-between;
   padding: 21px 24px 15px;
@@ -566,19 +652,23 @@ kbd {
 .project-toolbar {
   display: flex;
   min-height: 42px;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px 12px;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .project-summary {
   display: flex;
-  min-width: max-content;
+  min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
   gap: 7px;
   color: var(--quiet);
   font-size: 9px;
+  flex-wrap: wrap;
 }
 
 .project-summary strong {
@@ -614,9 +704,11 @@ kbd {
 
 .toolbar-controls {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
   gap: 7px;
+  flex-wrap: wrap;
 }
 
 .view-switcher {
@@ -732,6 +824,7 @@ kbd {
 }
 
 .project-scroll-area {
+  min-width: 0;
   min-height: 0;
   flex: 1;
   overflow: auto;
@@ -753,13 +846,13 @@ kbd {
 
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(225px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 225px), 1fr));
   gap: 9px;
   padding-bottom: 8px;
 }
 
 .project-grid[data-view="comfortable"] {
-  grid-template-columns: repeat(2, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 10px;
 }
 
@@ -813,6 +906,21 @@ kbd {
   --tag-color: #ff9f0a;
 }
 
+.project-card[data-tag-color="none"][data-git-dirty="true"],
+.project-table tr[data-tag-color="none"][data-git-dirty="true"] {
+  --tag-color: var(--amber);
+}
+
+.project-card[data-tag-color="none"][data-status="running"],
+.project-table tr[data-tag-color="none"][data-status="running"] {
+  --tag-color: var(--green);
+}
+
+.project-card[data-tag-color="none"][data-crashed="true"],
+.project-table tr[data-tag-color="none"][data-crashed="true"] {
+  --tag-color: var(--red);
+}
+
 .project-card[data-status="running"] {
   border-color: #344038;
 }
@@ -844,6 +952,7 @@ kbd {
 
 .project-heading {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 3px;
@@ -860,6 +969,7 @@ kbd {
 }
 
 .project-title-block {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -900,6 +1010,8 @@ kbd {
   margin-left: 14px;
   color: var(--quiet);
   font-size: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -965,6 +1077,7 @@ button.git-status:active {
 
 .git-status[data-state="checking"] {
   color: var(--quiet);
+  opacity: 0.72;
 }
 
 .git-status[data-state="clean"] {
@@ -1053,15 +1166,20 @@ button.git-status:active {
   min-width: 0;
   align-items: center;
   height: 26px;
-  padding: 0 3px;
+  padding: 0 8px;
   gap: 5px;
   color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--line), transparent 42%);
+  border-radius: 5px;
+  background: #0f130f;
   font-size: 9px;
 }
 
 .command-line code {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
-  color: #bfc8c1;
+  color: #929d95;
   font-family: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1080,10 +1198,42 @@ button.git-status:active {
 
 .card-actions {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   margin-top: 7px;
   gap: 6px;
+}
+
+.card-footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 8px;
+  gap: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--line), transparent 28%);
+}
+
+.card-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.card-quick-action {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+  color: var(--muted);
+  border-color: var(--line);
+  background: #101411;
+}
+
+.card-quick-action:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--control-hover);
 }
 
 .run-button {
@@ -1111,11 +1261,140 @@ button.git-status:active {
   background: #291c1b;
 }
 
-.utility-actions {
+.project-endpoints {
   display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+}
+
+.project-endpoint-button,
+.project-endpoint-more {
+  display: inline-flex;
   height: 25px;
   align-items: center;
-  gap: 1px;
+  justify-content: center;
+  padding: 0;
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green), transparent 72%);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--green), transparent 94%);
+  cursor: pointer;
+  font-size: 8px;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.project-endpoint-button {
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-start;
+  padding: 0 8px;
+  gap: 6px;
+}
+
+.project-endpoint-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-endpoint-button svg {
+  flex: 0 0 auto;
+}
+
+.project-endpoint-button svg:last-child {
+  margin-left: auto;
+  color: var(--quiet);
+}
+
+.project-endpoint-more {
+  width: 31px;
+  flex: 0 0 31px;
+}
+
+.project-endpoint-button:hover,
+.project-endpoint-more:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--green), transparent 48%);
+  background: color-mix(in srgb, var(--green), transparent 88%);
+}
+
+.project-endpoint-button:active,
+.project-endpoint-more:active {
+  transform: scale(0.97);
+}
+
+.project-context-menu {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: 218px;
+  padding: 6px;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--raised), var(--bg) 14%);
+  box-shadow: 0 20px 55px rgb(0 0 0 / 52%);
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out);
+}
+
+@starting-style {
+  .project-context-menu {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.project-context-menu > button {
+  display: grid;
+  width: 100%;
+  height: 30px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  padding: 0 8px;
+  gap: 7px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  outline: 0;
+  background: transparent;
+  font-size: 9px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 100ms ease, background-color 100ms ease,
+    transform 100ms var(--ease-out);
+}
+
+.project-context-menu > button:hover,
+.project-context-menu > button:focus-visible {
+  color: var(--text);
+  background: var(--control-hover);
+}
+
+.project-context-menu > button:active {
+  transform: scale(0.98);
+}
+
+.project-context-menu > button svg {
+  color: var(--quiet);
+}
+
+.project-context-menu > button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-context-menu-separator {
+  height: 1px;
+  margin: 5px 7px;
+  background: var(--line);
 }
 
 .project-table-shell {
@@ -1162,7 +1441,7 @@ button.git-status:active {
 }
 
 .project-table th:nth-child(5) {
-  width: 215px;
+  width: 135px;
 }
 
 .project-table tr {
@@ -1284,6 +1563,18 @@ button.git-status:active {
   align-items: center;
   justify-content: flex-end;
   gap: 1px;
+}
+
+.table-actions .icon-button {
+  width: 23px;
+  height: 23px;
+  flex-basis: 23px;
+}
+
+.table-endpoint-button {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green), transparent 72%);
+  background: color-mix(in srgb, var(--green), transparent 94%);
 }
 
 .table-run-button {
@@ -1519,6 +1810,7 @@ button.git-status:active {
   min-height: 51px;
   align-items: flex-start;
   justify-content: space-between;
+  padding-right: 42px;
 }
 
 .preferences-section-heading p {
@@ -1819,17 +2111,18 @@ button.git-status:active {
 
 .preferences-close {
   position: absolute;
-  z-index: 1;
-  top: 13px;
-  right: 13px;
+  z-index: 2;
+  top: 15px;
+  right: 15px;
   display: grid;
   width: 29px;
   height: 29px;
   padding: 0;
   color: var(--muted);
-  border: 1px solid transparent;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: transparent;
+  background: var(--control);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 18%);
   place-items: center;
 }
 
@@ -3390,6 +3683,7 @@ button.git-status:active {
   padding: 0 10px;
   color: var(--text);
   border: 0;
+  outline: 0;
   background: transparent;
 }
 
@@ -3420,17 +3714,22 @@ button.git-status:active {
 .project-task-editor {
   display: grid;
   gap: 8px;
+  container-type: inline-size;
 }
 
 .project-task-editor > header {
   display: flex;
-  align-items: flex-end;
+  min-width: 0;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
-.project-task-editor > header > div {
+.project-task-editor > header > div:first-child {
   display: grid;
+  min-width: 180px;
+  flex: 1 1 260px;
   gap: 3px;
 }
 
@@ -3447,8 +3746,12 @@ button.git-status:active {
 
 .project-task-editor-actions {
   display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
+  justify-content: flex-end;
   gap: 5px;
+  flex-wrap: wrap;
 }
 
 .project-task-editor > header button {
@@ -3534,7 +3837,7 @@ button.git-status:active {
   font-weight: 600;
 }
 
-.project-task-edit-fields label > input {
+.project-task-edit-fields label > input:not([type="checkbox"]) {
   width: 100%;
   height: 31px;
   padding: 0 9px;
@@ -3546,7 +3849,7 @@ button.git-status:active {
   font-size: 9px;
 }
 
-.project-task-edit-fields label > input:focus {
+.project-task-edit-fields label > input:not([type="checkbox"]):focus {
   border-color: color-mix(in srgb, var(--green), transparent 58%);
 }
 
@@ -3570,13 +3873,53 @@ button.git-status:active {
 }
 
 .task-autostart-toggle input {
-  width: 12px;
-  height: 12px;
-  accent-color: var(--green);
+  display: grid;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  appearance: none;
+  background: var(--deep);
+  cursor: pointer;
+  place-items: center;
+  transition: border-color 140ms ease, background-color 140ms ease,
+    transform 120ms var(--ease-out);
+}
+
+.task-autostart-toggle input::after {
+  width: 7px;
+  height: 4px;
+  content: "";
+  border-bottom: 2px solid var(--on-accent);
+  border-left: 2px solid var(--on-accent);
+  opacity: 0;
+  transform: translateY(-1px) rotate(-45deg) scale(0.8);
+  transition: opacity 120ms ease, transform 120ms var(--ease-out);
+}
+
+.task-autostart-toggle input:checked {
+  border-color: var(--green);
+  background: var(--green);
+}
+
+.task-autostart-toggle input:checked::after {
+  opacity: 1;
+  transform: translateY(-1px) rotate(-45deg) scale(1);
+}
+
+.task-autostart-toggle input:active {
+  transform: scale(0.92);
 }
 
 .task-autostart-toggle span {
+  min-width: 0;
+  overflow: hidden;
   color: inherit !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-reliability-settings {
@@ -3715,6 +4058,30 @@ button.git-status:active {
   transform: scale(0.97);
 }
 
+@container (max-width: 500px) {
+  .project-task-editor-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .project-task-edit-fields > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .task-autostart-toggle {
+    width: 100%;
+  }
+
+  .task-reliability-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .task-dependency-picker {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 .task-remove-button {
   display: grid;
   width: 25px;
@@ -3734,8 +4101,9 @@ button.git-status:active {
 }
 
 .task-remove-button:disabled {
+  visibility: hidden;
   cursor: default;
-  opacity: 0.25;
+  pointer-events: none;
 }
 
 .form-hint {
@@ -3787,6 +4155,10 @@ button.git-status:active {
   opacity: 1;
   transform: translateY(0);
   transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+.app-shell[data-sidebar-collapsed="true"] .log-panel {
+  left: 80px;
 }
 
 @starting-style {
@@ -5377,6 +5749,23 @@ button.git-status:active {
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .project-card .project-more-button,
+  .project-card .favorite-button:not([data-active="true"]),
+  .project-table tbody tr .table-more-button {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .project-card:hover .project-more-button,
+  .project-card:focus-within .project-more-button,
+  .project-card:hover .favorite-button,
+  .project-card:focus-within .favorite-button,
+  .project-table tbody tr:hover .table-more-button,
+  .project-table tbody tr:focus-within .table-more-button {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
   .project-card:hover {
     border-color: #353d37;
     background: var(--raised);
@@ -5391,7 +5780,7 @@ button.git-status:active {
 
 @media (max-width: 1050px) {
   .project-grid {
-    grid-template-columns: repeat(2, minmax(235px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr));
   }
 
   .git-workspace-body {

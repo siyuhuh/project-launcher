@@ -1,22 +1,20 @@
 import type { DragEvent } from "react";
 import {
-  Activity,
-  Folder,
+  ExternalLink,
   GripVertical,
   LoaderCircle,
-  Pencil,
+  MoreHorizontal,
   Play,
   Square,
   Star,
-  TerminalSquare,
-  Wrench,
 } from "lucide-react";
 import { projectActivity } from "../lib/projectMeta";
-import type { ProjectView } from "../types";
+import type { ProjectEndpoint, ProjectView } from "../types";
 import { GitStatusBadge } from "./ProjectCard";
 
 interface Props {
   projects: ProjectView[];
+  projectEndpoints: Record<string, ProjectEndpoint[]>;
   pendingIds: Set<string>;
   favoritePendingIds: Set<string>;
   canReorder: boolean;
@@ -24,12 +22,9 @@ interface Props {
   dropTargetId: string | null;
   onToggle: (project: ProjectView) => void;
   onFavorite: (project: ProjectView) => void;
-  onLogs: (project: ProjectView) => void;
-  onEdit: (project: ProjectView) => void;
-  onOpenFolder: (project: ProjectView) => void;
-  onOpenTerminal: (project: ProjectView) => void;
   onGit: (project: ProjectView) => void;
-  onTools: (project: ProjectView) => void;
+  onOpenEndpoint: (project: ProjectView, endpoint: ProjectEndpoint) => void;
+  onOpenMenu: (project: ProjectView, position: { x: number; y: number }) => void;
   onDragStart: (event: DragEvent<HTMLElement>, projectId: string) => void;
   onDragOver: (event: DragEvent<HTMLElement>, projectId: string) => void;
   onDrop: (event: DragEvent<HTMLElement>, projectId: string) => void;
@@ -38,6 +33,7 @@ interface Props {
 
 export function ProjectTable({
   projects,
+  projectEndpoints,
   pendingIds,
   favoritePendingIds,
   canReorder,
@@ -45,12 +41,9 @@ export function ProjectTable({
   dropTargetId,
   onToggle,
   onFavorite,
-  onLogs,
-  onEdit,
-  onOpenFolder,
-  onOpenTerminal,
   onGit,
-  onTools,
+  onOpenEndpoint,
+  onOpenMenu,
   onDragStart,
   onDragOver,
   onDrop,
@@ -72,11 +65,14 @@ export function ProjectTable({
           {projects.map((project) => {
             const running = project.status === "running";
             const pending = pendingIds.has(project.id);
+            const primaryEndpoint = projectEndpoints[project.id]?.[0];
             return (
               <tr
                 key={project.id}
                 data-status={project.status}
                 data-tag-color={project.finderTagColor ?? "none"}
+                data-git-dirty={project.gitStatus?.dirty ?? false}
+                data-crashed={project.crashedTaskCount > 0}
                 data-draggable={canReorder}
                 data-dragging={draggedId === project.id}
                 data-drop-target={dropTargetId === project.id}
@@ -85,6 +81,10 @@ export function ProjectTable({
                 onDragOver={(event) => onDragOver(event, project.id)}
                 onDrop={(event) => onDrop(event, project.id)}
                 onDragEnd={onDragEnd}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onOpenMenu(project, { x: event.clientX, y: event.clientY });
+                }}
               >
                 <td className="table-project-cell">
                   {canReorder ? (
@@ -94,11 +94,7 @@ export function ProjectTable({
                   ) : null}
                   <span
                     className="finder-tag-dot"
-                    title={
-                      project.finderTagColor
-                        ? `${project.finderTagColor} Finder tag`
-                        : "No Finder tag"
-                    }
+                    title={projectAccentTitle(project)}
                   />
                   <strong title={project.name}>{project.name}</strong>
                   <button
@@ -153,45 +149,26 @@ export function ProjectTable({
                       )}
                       {pending ? "Working" : running ? "Stop" : "Run"}
                     </button>
+                    {primaryEndpoint ? (
+                      <button
+                        className="icon-button table-endpoint-button"
+                        onClick={() => onOpenEndpoint(project, primaryEndpoint)}
+                        title={`Open ${primaryEndpoint.url} · ${primaryEndpoint.taskName}`}
+                        aria-label={`Open localhost port ${primaryEndpoint.port}`}
+                      >
+                        <ExternalLink size={13} />
+                      </button>
+                    ) : null}
                     <button
-                      className="icon-button"
-                      onClick={() => onTools(project)}
-                      title="Developer tools"
-                      aria-label={`Open developer tools for ${project.name}`}
+                      className="icon-button table-more-button"
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        onOpenMenu(project, { x: rect.right, y: rect.bottom + 5 });
+                      }}
+                      title="More actions"
+                      aria-label={`More actions for ${project.name}`}
                     >
-                      <Wrench size={13} />
-                    </button>
-                    <button
-                      className="icon-button"
-                      onClick={() => onOpenFolder(project)}
-                      title={project.path}
-                      aria-label="Show project folder"
-                    >
-                      <Folder size={13} />
-                    </button>
-                    <button
-                      className="icon-button"
-                      onClick={() => onLogs(project)}
-                      title="Tasks and health"
-                      aria-label="Open tasks and health"
-                    >
-                      <Activity size={13} />
-                    </button>
-                    <button
-                      className="icon-button"
-                      onClick={() => onOpenTerminal(project)}
-                      title="Open in Terminal"
-                      aria-label="Open in Terminal"
-                    >
-                      <TerminalSquare size={13} />
-                    </button>
-                    <button
-                      className="icon-button"
-                      onClick={() => onEdit(project)}
-                      title="Edit project"
-                      aria-label={`Edit ${project.name}`}
-                    >
-                      <Pencil size={12} />
+                      <MoreHorizontal size={14} />
                     </button>
                   </div>
                 </td>
@@ -210,4 +187,12 @@ function activityTitle(project: ProjectView): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(project.startedAt * 1_000);
+}
+
+function projectAccentTitle(project: ProjectView): string {
+  if (project.finderTagColor) return `${project.finderTagColor} Finder tag`;
+  if (project.crashedTaskCount > 0) return "A project task crashed";
+  if (project.status === "running") return "Project is running";
+  if (project.gitStatus?.dirty) return "Project has uncommitted changes";
+  return "No Finder tag";
 }

@@ -63,6 +63,11 @@ export interface TaskPort {
   url: string;
 }
 
+export interface ProjectEndpoint extends TaskPort {
+  taskId: string;
+  taskName: string;
+}
+
 export interface TaskPortConflict {
   port: number;
   pid: number;

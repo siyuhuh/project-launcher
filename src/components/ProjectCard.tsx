@@ -1,22 +1,25 @@
 import type { DragEvent } from "react";
 import {
   Activity,
-  Folder,
+  ExternalLink,
+  FolderOpen,
   GitBranch,
+  Globe2,
   GripVertical,
   LoaderCircle,
-  Pencil,
+  MoreHorizontal,
   Play,
+  Settings2,
   Square,
   Star,
   TerminalSquare,
-  Wrench,
 } from "lucide-react";
 import { projectActivity } from "../lib/projectMeta";
-import type { GitStatus, ProjectView } from "../types";
+import type { GitStatus, ProjectEndpoint, ProjectView } from "../types";
 
 interface Props {
   project: ProjectView;
+  endpoints: ProjectEndpoint[];
   pending: boolean;
   favoritePending: boolean;
   canReorder: boolean;
@@ -25,11 +28,12 @@ interface Props {
   onToggle: () => void;
   onFavorite: () => void;
   onLogs: () => void;
+  onGit: () => void;
   onEdit: () => void;
   onOpenFolder: () => void;
   onOpenTerminal: () => void;
-  onGit: () => void;
-  onTools: () => void;
+  onOpenEndpoint: (endpoint: ProjectEndpoint) => void;
+  onOpenMenu: (position: { x: number; y: number }) => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
   onDragOver: (event: DragEvent<HTMLElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
@@ -38,6 +42,7 @@ interface Props {
 
 export function ProjectCard({
   project,
+  endpoints,
   pending,
   favoritePending,
   canReorder,
@@ -46,11 +51,12 @@ export function ProjectCard({
   onToggle,
   onFavorite,
   onLogs,
+  onGit,
   onEdit,
   onOpenFolder,
   onOpenTerminal,
-  onGit,
-  onTools,
+  onOpenEndpoint,
+  onOpenMenu,
   onDragStart,
   onDragOver,
   onDrop,
@@ -63,6 +69,8 @@ export function ProjectCard({
       className="project-card"
       data-status={project.status}
       data-tag-color={project.finderTagColor ?? "none"}
+      data-git-dirty={project.gitStatus?.dirty ?? false}
+      data-crashed={project.crashedTaskCount > 0}
       data-draggable={canReorder}
       data-dragging={dragging}
       data-drop-target={dropTarget}
@@ -71,6 +79,10 @@ export function ProjectCard({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onOpenMenu({ x: event.clientX, y: event.clientY });
+      }}
     >
       <div className="card-topline">
         <div className="project-heading">
@@ -83,11 +95,7 @@ export function ProjectCard({
             <div className="project-title-row">
               <span
                 className="finder-tag-dot"
-                title={
-                  project.finderTagColor
-                    ? `${project.finderTagColor} Finder tag`
-                    : "No Finder tag"
-                }
+                title={projectAccentTitle(project)}
               />
               <h2 title={project.name}>{project.name}</h2>
             </div>
@@ -110,6 +118,17 @@ export function ProjectCard({
         </div>
         <div className="card-icon-actions">
           <button
+            className="icon-button project-more-button"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              onOpenMenu({ x: rect.right, y: rect.bottom + 5 });
+            }}
+            aria-label={`More actions for ${project.name}`}
+            title="More actions"
+          >
+            <MoreHorizontal size={14} />
+          </button>
+          <button
             className="favorite-button"
             data-active={project.favorite}
             onClick={onFavorite}
@@ -118,9 +137,6 @@ export function ProjectCard({
             title={project.favorite ? "Unpin project" : "Pin project"}
           >
             <Star size={14} fill={project.favorite ? "currentColor" : "none"} />
-          </button>
-          <button className="icon-button" onClick={onEdit} aria-label={`Edit ${project.name}`}>
-            <Pencil size={13} />
           </button>
         </div>
       </div>
@@ -134,33 +150,64 @@ export function ProjectCard({
           <span>$</span><code>{project.command}</code>
           {project.taskCount > 1 ? <em>{project.taskCount} tasks</em> : null}
         </div>
-        <div className="utility-actions">
+      </div>
+
+      <div className="card-footer">
+        {endpoints.length > 0 ? (
+          <div className="project-endpoints" aria-label="Local development addresses">
+            <button
+              className="project-endpoint-button"
+              onClick={() => onOpenEndpoint(endpoints[0])}
+              title={`Open ${endpoints[0].url} · ${endpoints[0].taskName}`}
+            >
+              <Globe2 size={12} />
+              <span>localhost:{endpoints[0].port}</span>
+              <ExternalLink size={11} />
+            </button>
+            {endpoints.length > 1 ? (
+              <button
+                className="project-endpoint-more"
+                onClick={onLogs}
+                title={`Show all ${endpoints.length} listening addresses`}
+                aria-label={`Show all ${endpoints.length} listening addresses`}
+              >
+                +{endpoints.length - 1}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="card-quick-actions" aria-label="Project shortcuts">
           <button
-            className="icon-button"
-            onClick={onTools}
-            title="Developer tools"
-            aria-label={`Open developer tools for ${project.name}`}
-          >
-            <Wrench size={14} />
-          </button>
-          <button
-            className="icon-button"
-            onClick={onOpenFolder}
-            title={project.path}
-            aria-label="Show project folder"
-          >
-            <Folder size={14} />
-          </button>
-          <button
-            className="icon-button"
+            className="icon-button card-quick-action"
             onClick={onLogs}
             title="Tasks and health"
-            aria-label="Open tasks and health"
+            aria-label={`Open tasks and health for ${project.name}`}
           >
-            <Activity size={14} />
+            <Activity size={13} />
           </button>
-          <button className="icon-button" onClick={onOpenTerminal} title="Open in Terminal" aria-label="Open in Terminal">
-            <TerminalSquare size={14} />
+          <button
+            className="icon-button card-quick-action"
+            onClick={onOpenFolder}
+            title="Reveal in Finder"
+            aria-label={`Reveal ${project.name} in Finder`}
+          >
+            <FolderOpen size={13} />
+          </button>
+          <button
+            className="icon-button card-quick-action"
+            onClick={onOpenTerminal}
+            title="Open in Terminal"
+            aria-label={`Open ${project.name} in Terminal`}
+          >
+            <TerminalSquare size={13} />
+          </button>
+          <button
+            className="icon-button card-quick-action"
+            onClick={onEdit}
+            title="Edit project"
+            aria-label={`Edit ${project.name}`}
+          >
+            <Settings2 size={13} />
           </button>
         </div>
       </div>
@@ -181,15 +228,14 @@ export function GitStatusBadge({
 
   if (!status) {
     return (
-      <Wrapper
+      <span
         className="git-status"
         data-state="checking"
-        title="Checking Git status"
-        onClick={onOpen}
-        aria-label={onOpen ? `Open Git workspace for ${projectName ?? "project"}` : undefined}
+        title="Reading the current Git branch and changed files"
       >
-        <GitBranch size={11} /> git…
-      </Wrapper>
+        <LoaderCircle className="spin" size={10} />
+        <span>Checking Git</span>
+      </span>
     );
   }
   if (!status.isRepo) {
@@ -238,4 +284,12 @@ function activityTitle(project: ProjectView): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(project.startedAt * 1_000);
+}
+
+function projectAccentTitle(project: ProjectView): string {
+  if (project.finderTagColor) return `${project.finderTagColor} Finder tag`;
+  if (project.crashedTaskCount > 0) return "A project task crashed";
+  if (project.status === "running") return "Project is running";
+  if (project.gitStatus?.dirty) return "Project has uncommitted changes";
+  return "No Finder tag";
 }

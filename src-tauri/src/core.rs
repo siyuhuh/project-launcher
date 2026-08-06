@@ -7,7 +7,7 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
-    sync::{Mutex, OnceLock, mpsc},
+    sync::{Arc, Mutex, OnceLock, mpsc},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -18,7 +18,8 @@ use uuid::Uuid;
 const APP_DIRECTORY: &str = "Runbox";
 const LOG_READ_LIMIT: u64 = 256 * 1024;
 const FINDER_TAG_CACHE_TTL: Duration = Duration::from_secs(15);
-const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(3);
+const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(8);
+const GIT_STATUS_WORKERS: usize = 4;
 const COMMIT_DIFF_LIMIT: usize = 96 * 1024;
 const HISTORY_PATCH_LIMIT: usize = 768 * 1024;
 const AI_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
@@ -2889,15 +2890,24 @@ fn git_status_sender() -> &'static mpsc::Sender<String> {
     static SENDER: OnceLock<mpsc::Sender<String>> = OnceLock::new();
     SENDER.get_or_init(|| {
         let (sender, receiver) = mpsc::channel::<String>();
-        thread::spawn(move || {
-            for path in receiver {
+        let receiver = Arc::new(Mutex::new(receiver));
+        for _ in 0..GIT_STATUS_WORKERS {
+            let receiver = Arc::clone(&receiver);
+            thread::spawn(move || loop {
+                let path = match receiver.lock() {
+                    Ok(receiver) => match receiver.recv() {
+                        Ok(path) => path,
+                        Err(_) => break,
+                    },
+                    Err(_) => break,
+                };
                 let status = read_git_status(&path);
                 if let Ok(mut cache) = git_status_cache().lock() {
                     cache.entries.insert(path.clone(), (Instant::now(), status));
                     cache.pending.remove(&path);
                 }
-            }
-        });
+            });
+        }
         sender
     })
 }

@@ -19,6 +19,8 @@ import {
   GripHorizontal,
   Layers3,
   LayoutGrid,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Rows3,
   Search,
@@ -33,6 +35,7 @@ import { DeveloperToolsPanel } from "./components/DeveloperToolsPanel";
 import { GitPanel } from "./components/GitPanel";
 import { PreferencesPanel } from "./components/PreferencesPanel";
 import { ProjectCard } from "./components/ProjectCard";
+import { ProjectContextMenu } from "./components/ProjectContextMenu";
 import { ProjectModal } from "./components/ProjectModal";
 import { ProjectTasksPanel } from "./components/ProjectTasksPanel";
 import { ProjectTable } from "./components/ProjectTable";
@@ -40,8 +43,10 @@ import { WorkspaceGroupsPanel } from "./components/WorkspaceGroupsPanel";
 import {
   deleteProject,
   getProjects,
+  getProjectTasks,
   getWorkspaceGroups,
   openProjectFolder,
+  openProjectTaskPort,
   openProjectTerminal,
   refreshFinderColors,
   reorderProjects,
@@ -57,7 +62,7 @@ import {
   savePreferences,
   updateUiScale,
 } from "./lib/preferences";
-import type { Project, ProjectForm, ProjectView } from "./types";
+import type { Project, ProjectEndpoint, ProjectForm, ProjectView } from "./types";
 import "./App.css";
 
 type Filter = "all" | "favorites" | "running" | "stopped" | "gitChanges";
@@ -65,6 +70,7 @@ type SortMode = "manual" | "recent" | "name";
 type TagFilter = "all" | CommandTag;
 type ViewMode = "comfortable" | "compact" | "table";
 type Toast = { id: number; message: string; tone: "success" | "error" };
+type ProjectMenuState = { projectId: string; x: number; y: number };
 
 const EMPTY_FORM: ProjectForm = {
   id: "",
@@ -118,8 +124,13 @@ export default function App() {
   const [toolsProjectId, setToolsProjectId] = useState<string | null>(null);
   const [workspaceGroupsOpen, setWorkspaceGroupsOpen] = useState(false);
   const [workspaceGroupCount, setWorkspaceGroupCount] = useState(0);
+  const [projectEndpoints, setProjectEndpoints] = useState<Record<string, ProjectEndpoint[]>>({});
   const [preferences, setPreferences] = useState(loadPreferences);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [projectMenu, setProjectMenu] = useState<ProjectMenuState | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("runbox.sidebarCollapsed") === "true",
+  );
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -131,6 +142,8 @@ export default function App() {
       setToast((current) => (current?.id === nextToast.id ? null : current));
     }, 3_000);
   }, []);
+
+  const closeProjectMenu = useCallback(() => setProjectMenu(null), []);
 
   const startWindowDrag = useCallback(() => {
     void getCurrentWindow().startDragging().catch((error) => {
@@ -167,6 +180,10 @@ export default function App() {
   }, [viewMode]);
 
   useEffect(() => {
+    window.localStorage.setItem("runbox.sidebarCollapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
     savePreferences(preferences);
     void applyPreferences(preferences).catch((error) => {
       console.error("Failed to apply interface preferences", error);
@@ -196,6 +213,10 @@ export default function App() {
         event.preventDefault();
         setModalProject(EMPTY_FORM);
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        setSidebarCollapsed((current) => !current);
+      }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
         setPreferencesOpen(true);
@@ -213,6 +234,7 @@ export default function App() {
         setPreferences((current) => updateUiScale(current, 1));
       }
       if (event.key === "Escape") {
+        setProjectMenu(null);
         setModalProject(null);
         setTaskProjectId(null);
         setGitProjectId(null);
@@ -268,9 +290,60 @@ export default function App() {
     return sortProjects(filtered, sortMode);
   }, [filter, projects, query, sortMode, tagFilter]);
 
+  const runningProjectKey = useMemo(
+    () => projects
+      .filter((project) => project.status === "running")
+      .map((project) => project.id)
+      .sort()
+      .join("|"),
+    [projects],
+  );
+
+  useEffect(() => {
+    const projectIds = runningProjectKey ? runningProjectKey.split("|") : [];
+    let cancelled = false;
+
+    if (projectIds.length === 0) {
+      setProjectEndpoints({});
+      return;
+    }
+
+    async function refreshEndpoints() {
+      const entries = await Promise.all(
+        projectIds.map(async (projectId): Promise<[string, ProjectEndpoint[]]> => {
+          try {
+            const tasks = await getProjectTasks(projectId);
+            const endpoints = tasks
+              .flatMap((task) =>
+                task.ports.map((port) => ({
+                  ...port,
+                  taskId: task.id,
+                  taskName: task.name,
+                })),
+              )
+              .sort((left, right) => left.port - right.port);
+            return [projectId, endpoints];
+          } catch (error) {
+            console.error(`Failed to detect project endpoints for ${projectId}`, error);
+            return [projectId, []];
+          }
+        }),
+      );
+      if (!cancelled) setProjectEndpoints(Object.fromEntries(entries));
+    }
+
+    void refreshEndpoints();
+    const interval = window.setInterval(refreshEndpoints, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [runningProjectKey]);
+
   const taskProject = projects.find((project) => project.id === taskProjectId) ?? null;
   const gitProject = projects.find((project) => project.id === gitProjectId) ?? null;
   const toolsProject = projects.find((project) => project.id === toolsProjectId) ?? null;
+  const menuProject = projects.find((project) => project.id === projectMenu?.projectId) ?? null;
   const canReorder =
     sortMode === "manual" && filter === "all" && tagFilter === "all" && query.trim() === "";
 
@@ -315,6 +388,15 @@ export default function App() {
       showToast(errorMessage(error), "error");
     } finally {
       setFavoritePendingIds((current) => withoutId(current, project.id));
+    }
+  }
+
+  async function copyProjectValue(value: string, label: string) {
+    try {
+      await writeClipboardText(value);
+      showToast(`${label} copied`, "success");
+    } catch (error) {
+      showToast(errorMessage(error), "error");
     }
   }
 
@@ -419,7 +501,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-sidebar-collapsed={sidebarCollapsed}>
       <div className="window-drag-region" data-tauri-drag-region>
         <button
           type="button"
@@ -434,9 +516,18 @@ export default function App() {
         </button>
       </div>
       <aside className="sidebar">
+        <button
+          type="button"
+          className="sidebar-collapse-button"
+          onClick={() => setSidebarCollapsed((current) => !current)}
+          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={`${sidebarCollapsed ? "Expand" : "Collapse"} sidebar (⌘B)`}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+        </button>
         <div className="brand" aria-label="Runbox">
           <span className="brand-mark"><Terminal size={17} strokeWidth={2.2} /></span>
-          <span>runbox<span className="brand-cursor">_</span></span>
+          <span className="brand-name">runbox<span className="brand-cursor">_</span></span>
         </div>
         <nav className="nav-list" aria-label="Project filters">
           <FilterButton
@@ -480,15 +571,20 @@ export default function App() {
         <button
           className="sidebar-workspaces-button"
           onClick={() => setWorkspaceGroupsOpen(true)}
+          title="Workspace groups"
         >
           <Layers3 size={15} />
           <span>Workspace groups</span>
           <strong>{workspaceGroupCount}</strong>
         </button>
         <div className="sidebar-spacer" />
-        <button className="sidebar-settings-button" onClick={() => setPreferencesOpen(true)}>
+        <button
+          className="sidebar-settings-button"
+          onClick={() => setPreferencesOpen(true)}
+          title="Preferences"
+        >
           <Settings2 size={14} />
-          Preferences
+          <span>Preferences</span>
           <kbd>⌘,</kbd>
         </button>
         <div className="cli-hint">
@@ -496,8 +592,12 @@ export default function App() {
           <code><span>$</span> p &lt;project&gt;</code>
           <p>Same projects. Same status.</p>
         </div>
-        <button className="sidebar-add-button" onClick={() => setModalProject(EMPTY_FORM)}>
-          <Plus size={15} /> Add project <kbd>⌘N</kbd>
+        <button
+          className="sidebar-add-button"
+          onClick={() => setModalProject(EMPTY_FORM)}
+          title="Add project"
+        >
+          <Plus size={15} /> <span>Add project</span> <kbd>⌘N</kbd>
         </button>
       </aside>
 
@@ -598,6 +698,7 @@ export default function App() {
             viewMode === "table" ? (
               <ProjectTable
                 projects={visibleProjects}
+                projectEndpoints={projectEndpoints}
                 pendingIds={pendingIds}
                 favoritePendingIds={favoritePendingIds}
                 canReorder={canReorder}
@@ -605,19 +706,14 @@ export default function App() {
                 dropTargetId={dropTargetId}
                 onToggle={(project) => void handleToggle(project)}
                 onFavorite={(project) => void handleFavorite(project)}
-                onLogs={(project) => setTaskProjectId(project.id)}
-                onEdit={(project) => setModalProject(project)}
                 onGit={(project) => setGitProjectId(project.id)}
-                onTools={(project) => setToolsProjectId(project.id)}
-                onOpenFolder={(project) =>
-                  void openProjectFolder(project.id).catch((error) =>
-                    showToast(errorMessage(error), "error"),
+                onOpenEndpoint={(project, endpoint) =>
+                  void openProjectTaskPort(project.id, endpoint.taskId, endpoint.port).catch(
+                    (error) => showToast(errorMessage(error), "error"),
                   )
                 }
-                onOpenTerminal={(project) =>
-                  void openProjectTerminal(project.id).catch((error) =>
-                    showToast(errorMessage(error), "error"),
-                  )
+                onOpenMenu={(project, position) =>
+                  setProjectMenu({ projectId: project.id, ...position })
                 }
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
@@ -630,6 +726,7 @@ export default function App() {
                   <ProjectCard
                     key={project.id}
                     project={project}
+                    endpoints={projectEndpoints[project.id] ?? []}
                     pending={pendingIds.has(project.id)}
                     favoritePending={favoritePendingIds.has(project.id)}
                     canReorder={canReorder}
@@ -638,11 +735,26 @@ export default function App() {
                     onToggle={() => void handleToggle(project)}
                     onFavorite={() => void handleFavorite(project)}
                     onLogs={() => setTaskProjectId(project.id)}
-                    onEdit={() => setModalProject(project)}
                     onGit={() => setGitProjectId(project.id)}
-                    onTools={() => setToolsProjectId(project.id)}
-                    onOpenFolder={() => void openProjectFolder(project.id).catch((error) => showToast(errorMessage(error), "error"))}
-                    onOpenTerminal={() => void openProjectTerminal(project.id).catch((error) => showToast(errorMessage(error), "error"))}
+                    onEdit={() => setModalProject(project)}
+                    onOpenFolder={() =>
+                      void openProjectFolder(project.id).catch((error) =>
+                        showToast(errorMessage(error), "error"),
+                      )
+                    }
+                    onOpenTerminal={() =>
+                      void openProjectTerminal(project.id).catch((error) =>
+                        showToast(errorMessage(error), "error"),
+                      )
+                    }
+                    onOpenEndpoint={(endpoint) =>
+                      void openProjectTaskPort(project.id, endpoint.taskId, endpoint.port).catch(
+                        (error) => showToast(errorMessage(error), "error"),
+                      )
+                    }
+                    onOpenMenu={(position) =>
+                      setProjectMenu({ projectId: project.id, ...position })
+                    }
                     onDragStart={(event) => handleDragStart(event, project.id)}
                     onDragOver={(event) => handleDragOver(event, project.id)}
                     onDrop={(event) => void handleDrop(event, project.id)}
@@ -704,6 +816,27 @@ export default function App() {
           onClose={() => setPreferencesOpen(false)}
         />
       ) : null}
+      {projectMenu && menuProject ? (
+        <ProjectContextMenu
+          project={menuProject}
+          position={projectMenu}
+          onClose={closeProjectMenu}
+          onCopyPath={() => void copyProjectValue(menuProject.path, "Project path")}
+          onTasks={() => setTaskProjectId(menuProject.id)}
+          onTools={() => setToolsProjectId(menuProject.id)}
+          onOpenFolder={() =>
+            void openProjectFolder(menuProject.id).catch((error) =>
+              showToast(errorMessage(error), "error"),
+            )
+          }
+          onOpenTerminal={() =>
+            void openProjectTerminal(menuProject.id).catch((error) =>
+              showToast(errorMessage(error), "error"),
+            )
+          }
+          onEdit={() => setModalProject(menuProject)}
+        />
+      ) : null}
       {toast ? (
         <div className="toast" data-tone={toast.tone} role="status">
           <span>{toast.tone === "success" ? "✓" : "!"}</span>{toast.message}
@@ -753,8 +886,8 @@ function FilterButton({
   accent?: boolean;
 }) {
   return (
-    <button className="nav-item" data-active={active} onClick={onClick}>
-      {icon}<span>{label}</span>
+    <button className="nav-item" data-active={active} onClick={onClick} title={label}>
+      {icon}<span className="nav-label">{label}</span>
       <span className={accent ? "nav-count running-count" : "nav-count"}>{count}</span>
     </button>
   );
@@ -810,6 +943,27 @@ function withoutId(values: Set<string>, projectId: string): Set<string> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function writeClipboardText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Fall through to the selection-based clipboard path for older webviews.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Unable to copy to the clipboard");
 }
 
 function commonDirectory(paths: string[]): string | undefined {
