@@ -23,6 +23,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_body="$(cat <<'EOF'
+          ## Download & install
+
+          - macOS Apple Silicon: download the `*_aarch64.dmg` file.
+          - macOS Intel: download the `*_x64.dmg` file.
+          - Windows: download the `.msi` or `-setup.exe` installer.
+
+          ### Optional terminal command
+
+          - macOS: `curl -fsSL https://raw.githubusercontent.com/siyuhuh/project-launcher/main/scripts/install-cli.sh | bash`
+          - Windows PowerShell: `irm https://raw.githubusercontent.com/siyuhuh/project-launcher/main/scripts/install-cli.ps1 | iex`
+
+          The CLI installer downloads the matching `p` binary. No source clone is required.
+
+          macOS desktop builds are ad-hoc signed and not notarized yet. If Gatekeeper blocks the app, see the installation instructions in the repository README.
+          EOF
+          )"
           if release_id="$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json databaseId --jq '.databaseId' 2>/dev/null)"; then
             echo "Reusing existing draft release ${release_id}"
           else
@@ -30,7 +47,7 @@ jobs:
               -f tag_name="${GITHUB_REF_NAME}" \
               -f target_commitish="${GITHUB_SHA}" \
               -f name="Runbox ${GITHUB_REF_NAME}" \
-              -f body="## Install Runbox\n\n- macOS Apple Silicon: download the \`aarch64.dmg\` file.\n- macOS Intel: download the \`x64.dmg\` file.\n- Windows: download the \`.msi\` or \`-setup.exe\` installer.\n\nFor macOS, this build is ad-hoc signed and not notarized yet. If Gatekeeper blocks the app, see the installation instructions in the repository README." \
+              -f body="$release_body" \
               -F draft=true \
               -F prerelease=false \
               --jq '.id')"
@@ -88,9 +105,65 @@ jobs:
           releaseDraft: true
           args: ${{ matrix.args }}
 
+  build-cli:
+    name: Build CLI ${{ matrix.platform }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS Apple Silicon
+            os: macos-latest
+            archive: runbox-cli-aarch64.tar.gz
+          - platform: macOS Intel
+            os: macos-15-intel
+            archive: runbox-cli-x64.tar.gz
+          - platform: Windows
+            os: windows-latest
+            archive: runbox-cli-x64.zip
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build CLI
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --bin p --features cli
+
+      - name: Package CLI on macOS
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p release-cli
+          cp target/release/p release-cli/p
+          tar -czf "${{ matrix.archive }}" -C release-cli p
+
+      - name: Package CLI on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-cli | Out-Null
+          Copy-Item target/release/p.exe release-cli/p.exe
+          Compress-Archive -Path release-cli/p.exe -DestinationPath "${{ matrix.archive }}"
+
+      - name: Upload CLI to GitHub Release on macOS
+        if: runner.os != 'Windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" "${{ matrix.archive }}" --repo "${GITHUB_REPOSITORY}" --clobber
+
+      - name: Upload CLI to GitHub Release on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:GITHUB_REF_NAME" "${{ matrix.archive }}" --repo "$env:GITHUB_REPOSITORY" --clobber
+
   publish:
     name: Publish release
-    needs: build
+    needs: [build, build-cli]
     runs-on: ubuntu-latest
     steps:
       - name: Publish GitHub Release

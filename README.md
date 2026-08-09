@@ -162,7 +162,32 @@ pnpm app:build
 
 The macOS app and DMG are written to `target/release/bundle/`.
 
-### Terminal command
+### Terminal command for installed app users
+
+普通用户不需要 clone 源码，也不需要安装 Rust。Release 页面提供了独立的 `p` CLI，给 Codex 或
+其他终端工具批量导入项目使用。
+
+macOS：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siyuhuh/project-launcher/main/scripts/install-cli.sh | bash
+```
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/siyuhuh/project-launcher/main/scripts/install-cli.ps1 | iex
+```
+
+安装完成后，打开新的 Terminal / PowerShell 窗口，再运行：
+
+```bash
+p --help
+```
+
+### Terminal command from source
+
+只有参与 Runbox 开发、从源码运行项目时，才需要：
 
 Install the companion `p` command:
 
@@ -193,7 +218,7 @@ the current Git branch and working-tree summary.
 
 ## Import many projects with an agent
 
-Runbox deliberately does not crawl your disk by itself. Codex or another local coding agent can inspect a workspace, choose the real application roots, and add them safely.
+Runbox deliberately does not crawl your disk by itself. Codex or another local coding agent can inspect a workspace, choose the real application roots, and add them safely. For the installed app, install the standalone `p` CLI first using the command above; cloning this repository is not required.
 
 Copy this prompt into your agent:
 
@@ -201,6 +226,10 @@ Copy this prompt into your agent:
 Scan my local workspace for project roots. Look for Git repositories and common
 launch manifests such as package.json, pnpm-lock.yaml, Cargo.toml, justfile, and
 Docker Compose files.
+
+If the `p` command is not available, tell the user to install the standalone Runbox
+CLI from the latest Release page. Do not ask the user to clone the Runbox source
+repository just to install the CLI.
 
 For each project with a clear dev or start command:
 1. Use the folder name as the friendly project name.
