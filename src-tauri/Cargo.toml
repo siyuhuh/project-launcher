@@ -1,6 +1,6 @@
 [package]
 name = "runbox"
-version = "0.3.1"
+version = "0.3.2"
 description = "A tiny desktop and terminal launcher for local development projects"
 authors = ["Siyu Hu"]
 edition = "2024"

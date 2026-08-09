@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+
+      - name: Create draft GitHub Release
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_id="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+            -f tag_name="${GITHUB_REF_NAME}" \
+            -f target_commitish="${GITHUB_SHA}" \
+            -f name="Runbox ${GITHUB_REF_NAME}" \
+            -f body="## Install Runbox\n\n- macOS Apple Silicon: download the \`aarch64.dmg\` file.\n- macOS Intel: download the \`x64.dmg\` file.\n- Windows: download the \`.msi\` or \`-setup.exe\` installer.\n\nFor macOS, this build is ad-hoc signed and not notarized yet. If Gatekeeper blocks the app, see the installation instructions in the repository README." \
+            -F draft=true \
+            -F prerelease=false \
+            --jq '.id')"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS Apple Silicon
+            os: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macOS Intel
+            os: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: Windows
+            os: windows-latest
+            args: ""
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and upload installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tauriScript: pnpm tauri
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false

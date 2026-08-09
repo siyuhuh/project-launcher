@@ -24,8 +24,44 @@
   <a href="#english-overview">English</a> ·
   <a href="#中文介绍">中文介绍</a> ·
   <a href="#product-tour--产品预览">Product tour</a> ·
+  <a href="#download--安装">Download / 安装</a> ·
   <a href="#quick-start">Quick start</a>
 </p>
+
+## Download / 安装
+
+<p align="center">
+  <a href="https://github.com/siyuhuh/project-launcher/releases/latest"><strong>⬇️ Download the latest Runbox release / 下载最新版 Runbox</strong></a>
+</p>
+
+请优先从 [GitHub Releases 最新版本页面](https://github.com/siyuhuh/project-launcher/releases/latest) 下载，
+不要从仓库的绿色 Code 按钮下载源码。根据你的系统选择对应安装包：
+
+| 系统 | 下载文件 | 安装方式 |
+| --- | --- | --- |
+| macOS Apple Silicon（M1/M2/M3/M4） | `Runbox_*_aarch64.dmg` | 打开 DMG，把 Runbox 拖进 Applications |
+| macOS Intel | `Runbox_*_x64.dmg` | 打开 DMG，把 Runbox 拖进 Applications |
+| Windows | `.msi` 或 `-setup.exe` | 双击安装包，按向导完成安装 |
+
+### macOS 首次打开
+
+当前公开构建使用临时签名，尚未接入 Apple Developer ID notarization。首次打开时，macOS 可能需要：
+
+1. 在 Applications 中找到 Runbox，按住 Control 点击，选择 **Open**。
+2. 如果仍然拦截，打开 **System Settings → Privacy & Security**，点击 **Open Anyway**。
+3. 如果提示 “Runbox.app is damaged and can’t be opened”，先把 App 放进 Applications，再在 Terminal 执行：
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Runbox.app
+   open /Applications/Runbox.app
+   ```
+
+后续接入 Apple Developer ID 签名和公证后，Mac 用户就可以直接双击打开，不再需要上述处理。
+
+### Windows 首次打开
+
+请从上面的官方 Release 页面下载安装。如果 Windows SmartScreen 提示未知发布者，确认文件来自该 Release
+页面后，点击 **More info → Run anyway**。
 
 ## English overview
 
