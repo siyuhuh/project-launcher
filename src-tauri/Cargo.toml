@@ -10,6 +10,10 @@ default-run = "runbox"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+cli = []
+
 [lib]
 name = "runbox_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -21,6 +25,7 @@ path = "src/main.rs"
 [[bin]]
 name = "p"
 path = "src/bin/p.rs"
+required-features = ["cli"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

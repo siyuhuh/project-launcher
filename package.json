@@ -10,7 +10,7 @@
     "tauri": "tauri",
     "app:dev": "tauri dev",
     "app:build": "tauri build",
-    "cli:install": "cargo install --path src-tauri --bin p --force"
+    "cli:install": "cargo install --path src-tauri --bin p --features cli --force"
   },
   "dependencies": {
     "@fontsource-variable/fira-code": "5.3.0",
