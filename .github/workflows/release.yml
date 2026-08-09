@@ -23,14 +23,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release_id="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
-            -f tag_name="${GITHUB_REF_NAME}" \
-            -f target_commitish="${GITHUB_SHA}" \
-            -f name="Runbox ${GITHUB_REF_NAME}" \
-            -f body="## Install Runbox\n\n- macOS Apple Silicon: download the \`aarch64.dmg\` file.\n- macOS Intel: download the \`x64.dmg\` file.\n- Windows: download the \`.msi\` or \`-setup.exe\` installer.\n\nFor macOS, this build is ad-hoc signed and not notarized yet. If Gatekeeper blocks the app, see the installation instructions in the repository README." \
-            -F draft=true \
-            -F prerelease=false \
-            --jq '.id')"
+          if release_id="$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json databaseId --jq '.databaseId' 2>/dev/null)"; then
+            echo "Reusing existing draft release ${release_id}"
+          else
+            release_id="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="${GITHUB_REF_NAME}" \
+              -f target_commitish="${GITHUB_SHA}" \
+              -f name="Runbox ${GITHUB_REF_NAME}" \
+              -f body="## Install Runbox\n\n- macOS Apple Silicon: download the \`aarch64.dmg\` file.\n- macOS Intel: download the \`x64.dmg\` file.\n- Windows: download the \`.msi\` or \`-setup.exe\` installer.\n\nFor macOS, this build is ad-hoc signed and not notarized yet. If Gatekeeper blocks the app, see the installation instructions in the repository README." \
+              -F draft=true \
+              -F prerelease=false \
+              --jq '.id')"
+          fi
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
   build:
@@ -45,7 +49,7 @@ jobs:
             os: macos-latest
             args: --target aarch64-apple-darwin
           - platform: macOS Intel
-            os: macos-latest
+            os: macos-15-intel
             args: --target x86_64-apple-darwin
           - platform: Windows
             os: windows-latest
@@ -69,7 +73,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
