@@ -24,9 +24,43 @@
   <a href="#english-overview">English</a> ·
   <a href="#中文介绍">中文介绍</a> ·
   <a href="#product-tour--产品预览">Product tour</a> ·
+  <a href="#copy-this-prompt--直接复制给-agent">Copy import prompt</a> ·
   <a href="#download--安装">Download / 安装</a> ·
   <a href="#quick-start">Quick start</a>
 </p>
+
+## Copy this prompt / 直接复制给 Agent
+
+安装 Runbox 和 `p` CLI 后，把下面整段 Prompt 复制给 Codex、Claude Code、Cursor 或其他本地 coding agent，
+把扫描目录替换成你自己的目录即可：
+
+```text
+请帮我扫描并整理本地开发项目。
+
+扫描目录：`/Users/你的用户名/Projects`
+
+请严格按下面流程执行：
+1. 先检查 `p --help` 是否可用。如果不可用，请告诉我从 Runbox 最新 Release 页面安装独立 CLI，
+   不要让我 clone Runbox 源码仓库，也不要运行 pnpm cli:install。
+2. 只扫描和分析，不启动任何项目，不执行 dev/start/build 命令。
+3. 在扫描目录下识别项目根目录，优先查看 `.git`、package.json、pnpm-lock.yaml、yarn.lock、
+   package-lock.json、Cargo.toml、pyproject.toml、go.mod、justfile 和 Docker Compose 文件。
+4. 跳过 node_modules、.git 内部目录、dist、build、target、coverage、缓存、压缩包、备份目录、
+   示例项目和明显不是可运行项目的目录。
+5. 对每个真正可运行的项目：
+   - 使用目录名作为项目名；
+   - 判断最合理的开发命令，例如 `pnpm dev`、`npm run dev`、`cargo run` 或项目文档中的命令；
+   - 不要同时导入一个 monorepo 的父目录和它的子项目，除非它们确实是两个独立可运行项目；
+   - 执行 `p add "<绝对路径>" --name "<项目名>"`；
+   - 只有在自动检测会出错时，才追加 `--command "<正确命令>"`。
+6. `p add` 是幂等的：如果项目已经存在就更新，不要手动修改 Runbox 数据文件。
+7. 完成后执行 `p list`，用表格汇报：已导入项目、使用的命令、跳过的目录和跳过原因。
+
+如果发现项目命令不确定，先列出来询问我，不要猜测后启动项目。
+```
+
+这段 Prompt 只负责“扫描、判断、导入”，不会自动启动项目。需要批量导入时，推荐先从
+[最新 Release 页面](https://github.com/siyuhuh/project-launcher/releases/latest) 安装 CLI；普通用户不需要 clone 仓库。
 
 ## Download / 安装
 
@@ -218,28 +252,9 @@ the current Git branch and working-tree summary.
 
 ## Import many projects with an agent
 
-Runbox deliberately does not crawl your disk by itself. Codex or another local coding agent can inspect a workspace, choose the real application roots, and add them safely. For the installed app, install the standalone `p` CLI first using the command above; cloning this repository is not required.
-
-Copy this prompt into your agent:
-
-```text
-Scan my local workspace for project roots. Look for Git repositories and common
-launch manifests such as package.json, pnpm-lock.yaml, Cargo.toml, justfile, and
-Docker Compose files.
-
-If the `p` command is not available, tell the user to install the standalone Runbox
-CLI from the latest Release page. Do not ask the user to clone the Runbox source
-repository just to install the CLI.
-
-For each project with a clear dev or start command:
-1. Use the folder name as the friendly project name.
-2. Skip node_modules, build output, research copies, archives, snapshots, and
-   repositories without a runnable development command.
-3. Run: p add "<absolute-project-path>" --name "<friendly-name>"
-4. If automatic detection is wrong, pass --command "<correct-command>".
-5. Do not start any project during import.
-6. Finish with p list and report what was added and what was skipped.
-```
+Runbox deliberately does not crawl your disk by itself. The copy-ready Prompt at the top of this README
+lets Codex or another local coding agent inspect a workspace, choose the real application roots, and add
+them safely. For the installed app, install the standalone `p` CLI first; cloning this repository is not required.
 
 The workflow an agent should follow is:
 
