@@ -19,6 +19,7 @@ import {
   startWorkspaceGroup,
   stopWorkspaceGroup,
 } from "../lib/backend";
+import { useI18n } from "../lib/i18n";
 import type {
   ProjectView,
   WorkspaceGroup,
@@ -48,6 +49,7 @@ export function WorkspaceGroupsPanel({
   onGroupCountChange,
   onNotify,
 }: Props) {
+  const { t } = useI18n();
   const [groups, setGroups] = useState<WorkspaceGroupView[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [draft, setDraft] = useState<WorkspaceGroup | null>(null);
@@ -98,7 +100,7 @@ export function WorkspaceGroupsPanel({
       setDraft(null);
       setSelectedGroupId(saved.id);
       await refreshGroups();
-      onNotify(`${saved.name} saved`, "success");
+      onNotify(t("{{name}} saved", { name: saved.name }), "success");
     } catch (error) {
       onNotify(errorMessage(error), "error");
     } finally {
@@ -111,10 +113,10 @@ export function WorkspaceGroupsPanel({
     try {
       if (group.runningTaskCount > 0) {
         await stopWorkspaceGroup(group.id);
-        onNotify(`${group.name} stopped`, "success");
+        onNotify(t("{{name}} stopped", { name: group.name }), "success");
       } else {
         await startWorkspaceGroup(group.id);
-        onNotify(`${group.name} started`, "success");
+        onNotify(t("{{name}} started", { name: group.name }), "success");
       }
       await refreshGroups();
       onProjectRefresh();
@@ -135,7 +137,7 @@ export function WorkspaceGroupsPanel({
       await deleteWorkspaceGroup(group.id);
       setConfirmDelete(false);
       await refreshGroups();
-      onNotify(`${group.name} removed`, "success");
+      onNotify(t("{{name}} removed", { name: group.name }), "success");
     } catch (error) {
       onNotify(errorMessage(error), "error");
     } finally {
@@ -158,11 +160,11 @@ export function WorkspaceGroupsPanel({
       >
         <header className="workspace-groups-header">
           <div>
-            <p><Layers3 size={13} /> WORKSPACE GROUPS</p>
-            <h2 id="workspace-groups-title">Start your stack together</h2>
-            <span>Run tasks in order and wait for each one to become ready.</span>
+            <p><Layers3 size={13} /> {t("WORKSPACE GROUPS")}</p>
+            <h2 id="workspace-groups-title">{t("Start your stack together")}</h2>
+            <span>{t("Run tasks in order and wait for each one to become ready.")}</span>
           </div>
-          <button className="panel-close-button" onClick={onClose} aria-label="Close workspaces">
+          <button className="panel-close-button" onClick={onClose} aria-label={t("Close workspaces")}>
             <X size={16} />
           </button>
         </header>
@@ -176,14 +178,14 @@ export function WorkspaceGroupsPanel({
                 setConfirmDelete(false);
               }}
             >
-              <Plus size={13} /> New workspace
+              <Plus size={13} /> {t("New workspace")}
             </button>
             {loading ? (
               <div className="workspace-groups-loading">
-                <LoaderCircle className="spin" size={13} /> Loading
+                <LoaderCircle className="spin" size={13} /> {t("Loading")}
               </div>
             ) : (
-              <nav aria-label="Workspace groups">
+              <nav aria-label={t("Workspace groups")}>
                 {groups.map((group) => (
                   <button
                     key={group.id}
@@ -199,8 +201,8 @@ export function WorkspaceGroupsPanel({
                     <span>
                       <strong>{group.name}</strong>
                       <small>
-                        {group.readyTaskCount}/{group.tasks.length} ready
-                        {group.blockedTaskCount > 0 ? ` · ${group.blockedTaskCount} blocked` : ""}
+                        {group.readyTaskCount}/{group.tasks.length} {t("ready")}
+                        {group.blockedTaskCount > 0 ? ` · ${group.blockedTaskCount} ${t("blocked")}` : ""}
                       </small>
                     </span>
                     <i data-running={group.runningTaskCount > 0} />
@@ -232,10 +234,10 @@ export function WorkspaceGroupsPanel({
             ) : (
               <div className="workspace-group-empty">
                 <span><Layers3 size={20} /></span>
-                <h3>Build your first workspace</h3>
-                <p>Group Web, API, Worker, or any other Runbox tasks behind one start button.</p>
+                <h3>{t("Build your first workspace")}</h3>
+                <p>{t("Group Web, API, Worker, or any other Runbox tasks behind one start button.")}</p>
                 <button onClick={() => setDraft(EMPTY_GROUP)}>
-                  <Plus size={13} /> New workspace
+                  <Plus size={13} /> {t("New workspace")}
                 </button>
               </div>
             )}
@@ -261,6 +263,7 @@ function GroupEditor({
   onCancel: () => void;
   onSave: (group: WorkspaceGroup) => void;
 }) {
+  const { t } = useI18n();
   function toggleEntry(entry: WorkspaceGroupEntry) {
     const selected = hasEntry(draft.entries, entry);
     onChange({
@@ -275,16 +278,16 @@ function GroupEditor({
     <div className="workspace-group-editor">
       <header>
         <div>
-          <p>{draft.id ? "EDIT WORKSPACE" : "NEW WORKSPACE"}</p>
-          <h3>{draft.id ? draft.name : "Choose tasks"}</h3>
+          <p>{draft.id ? t("EDIT WORKSPACE") : t("NEW WORKSPACE")}</p>
+          <h3>{draft.id ? draft.name : t("Choose tasks")}</h3>
         </div>
       </header>
       <label className="workspace-group-name">
-        <span>Name</span>
+        <span>{t("Name")}</span>
         <input
           value={draft.name}
           onChange={(event) => onChange({ ...draft, name: event.target.value })}
-          placeholder="Full stack"
+          placeholder={t("Full stack")}
           autoFocus
         />
       </label>
@@ -293,7 +296,7 @@ function GroupEditor({
           <section key={project.id}>
             <header>
               <strong>{project.name}</strong>
-              <span>{project.tasks.length} tasks</span>
+              <span>{t("{{count}} tasks", { count: project.tasks.length })}</span>
             </header>
             <div>
               {project.tasks.map((task) => {
@@ -322,15 +325,15 @@ function GroupEditor({
         ))}
       </div>
       <footer>
-        <span>{draft.entries.length} tasks · selection sets launch order</span>
-        <button className="secondary-button" onClick={onCancel}>Cancel</button>
+        <span>{t("{{count}} tasks · selection sets launch order", { count: draft.entries.length })}</span>
+        <button className="secondary-button" onClick={onCancel}>{t("Cancel")}</button>
         <button
           className="primary-button"
           onClick={() => onSave(draft)}
           disabled={pending || !draft.name.trim() || draft.entries.length === 0}
         >
           {pending ? <LoaderCircle className="spin" size={13} /> : null}
-          Save workspace
+          {t("Save workspace")}
         </button>
       </footer>
     </div>
@@ -352,22 +355,23 @@ function GroupDetail({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useI18n();
   const running = group.runningTaskCount > 0;
   return (
     <div className="workspace-group-overview">
       <header>
         <div>
-          <p>WORKSPACE</p>
+          <p>{t("WORKSPACE")}</p>
           <h3>{group.name}</h3>
           <span>
-            {group.readyTaskCount} of {group.tasks.length} tasks ready
-            {group.blockedTaskCount > 0 ? ` · ${group.blockedTaskCount} blocked` : ""}
-            {group.crashedTaskCount > 0 ? ` · ${group.crashedTaskCount} crashed` : ""}
+            {t("{{ready}} of {{total}} tasks ready", { ready: group.readyTaskCount, total: group.tasks.length })}
+            {group.blockedTaskCount > 0 ? ` · ${group.blockedTaskCount} ${t("blocked")}` : ""}
+            {group.crashedTaskCount > 0 ? ` · ${group.crashedTaskCount} ${t("crashed")}` : ""}
           </span>
         </div>
         <div>
           <button className="workspace-edit-button" onClick={onEdit}>
-            <Pencil size={12} /> Edit
+            <Pencil size={12} /> {t("Edit")}
           </button>
           <button
             className="workspace-group-toggle"
@@ -376,7 +380,7 @@ function GroupDetail({
             disabled={pending}
           >
             <GroupActionIcon pending={pending} running={running} />
-            {running ? "Stop workspace" : "Start workspace"}
+            {running ? t("Stop workspace") : t("Start workspace")}
           </button>
         </div>
       </header>
@@ -396,14 +400,14 @@ function GroupDetail({
               <strong><i>{index + 1}</i>{task.taskName}</strong>
               <small>{task.projectName}</small>
             </span>
-            <em>{workspaceTaskState(task)}</em>
+            <em>{workspaceTaskState(task, t)}</em>
           </div>
         ))}
       </div>
       <footer>
         <button className="workspace-delete-button" data-confirm={confirmDelete} onClick={onDelete}>
           <Trash2 size={12} />
-          {confirmDelete ? "Click again to remove" : "Remove workspace"}
+            {confirmDelete ? t("Click again to remove") : t("Remove workspace")}
         </button>
       </footer>
     </div>
@@ -424,24 +428,24 @@ function GroupActionIcon({ pending, running }: { pending: boolean; running: bool
   return <Play size={11} fill="currentColor" />;
 }
 
-function workspaceTaskState(task: WorkspaceGroupTaskView): string {
+function workspaceTaskState(task: WorkspaceGroupTaskView, t: (key: string) => string): string {
   switch (task.state) {
     case "ready":
-      return "Ready";
+      return t("Ready");
     case "running":
-      return "Running";
+      return t("Running");
     case "waiting":
-      return "Waiting";
+      return t("Waiting");
     case "starting":
-      return "Starting";
+      return t("Starting");
     case "blocked":
-      return "Blocked";
+      return t("Blocked");
     case "crashed":
-      return "Crashed";
+      return t("Crashed");
     case "exited":
-      return "Exited";
+      return t("Exited");
     case "stopped":
-      return "Stopped";
+      return t("Stopped");
   }
 }
 

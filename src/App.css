@@ -1737,6 +1737,7 @@ button.git-status:active {
 
 .preferences-nav-item,
 .preferences-reset,
+.preferences-language,
 .preferences-close,
 .scale-stepper button,
 .scale-presets button,
@@ -1787,6 +1788,33 @@ button.git-status:active {
   background: transparent;
   font-size: 8px;
   text-align: left;
+}
+
+.preferences-language {
+  display: flex;
+  width: 100%;
+  height: 31px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 0 9px;
+  gap: 7px;
+  color: var(--quiet);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 8px;
+  text-align: left;
+}
+
+.preferences-language:hover {
+  color: var(--muted);
+  background: var(--subtle);
+}
+
+.preferences-language strong {
+  margin-left: auto;
+  color: var(--text);
+  font-size: 9px;
+  font-weight: 600;
 }
 
 .preferences-reset:hover {
@@ -1924,6 +1952,7 @@ button.git-status:active {
 .theme-card:active,
 .preferences-close:active,
 .preferences-nav-item:active,
+.preferences-language:active,
 .preferences-reset:active {
   transform: scale(0.97);
 }

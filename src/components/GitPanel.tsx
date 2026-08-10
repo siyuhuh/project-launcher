@@ -36,6 +36,7 @@ import {
   switchBranch,
   unstageGitFiles,
 } from "../lib/backend";
+import { useI18n } from "../lib/i18n";
 import type {
   CommitMessageProvider,
   GitCommit,
@@ -64,6 +65,7 @@ export function GitPanel({
   onProjectRefresh,
   onNotify,
 }: Props) {
+  const { t } = useI18n();
   const [workspace, setWorkspace] = useState<GitWorkspace | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [diff, setDiff] = useState("");
@@ -295,7 +297,7 @@ export function GitPanel({
     await runOperation(
       "commit",
       () => createCommit(project.id, message),
-      `Committed to ${workspace?.branch ?? "branch"}`,
+      t("Committed to {{branch}}", { branch: workspace?.branch ?? t("branch") }),
     );
     setCommitMessage("");
   }
@@ -306,7 +308,7 @@ export function GitPanel({
     try {
       const message = await generateCommitMessage(project.id, commitProviderId);
       setCommitMessage(message);
-      onNotify(`Drafted with ${selectedCommitProvider?.name ?? "AI"}`, "success");
+      onNotify(t("Drafted with {{provider}}", { provider: selectedCommitProvider?.name ?? "AI" }), "success");
     } catch (error) {
       onNotify(errorMessage(error), "error");
     } finally {
@@ -328,7 +330,7 @@ export function GitPanel({
     await runOperation(
       "branch",
       () => createBranch(project.id, branch),
-      `Created ${branch}`,
+      t("Created {{branch}}", { branch }),
     );
     setBranchDraft("");
   }
@@ -346,7 +348,7 @@ export function GitPanel({
     try {
       setWorkspace(await revertGitCommit(project.id, commitDetail.hash));
       onProjectRefresh();
-      onNotify(`Created a revert for ${commitDetail.shortHash}`, "success");
+      onNotify(t("Created a revert for {{hash}}", { hash: commitDetail.shortHash }), "success");
       await loadHistory(true, historyPath, 0);
     } catch (error) {
       onNotify(errorMessage(error), "error");
@@ -372,16 +374,16 @@ export function GitPanel({
         if (event.currentTarget === event.target) onClose();
       }}
     >
-      <section className="git-workspace" role="dialog" aria-modal="true" aria-label={`Git workspace for ${project.name}`}>
+      <section className="git-workspace" role="dialog" aria-modal="true" aria-label={t("Git workspace for {{name}}", { name: project.name })}>
         <header className="git-workspace-header">
           <div>
             <div className="git-workspace-kicker">
-              <GitBranch size={12} /> GIT WORKSPACE
+              <GitBranch size={12} /> {t("GIT WORKSPACE")}
             </div>
             <h2>{project.name}</h2>
             <p title={project.path}>{project.path}</p>
           </div>
-          <button className="panel-close-button" onClick={onClose} aria-label="Close Git workspace">
+          <button className="panel-close-button" onClick={onClose} aria-label={t("Close Git workspace")}>
             <X size={16} />
           </button>
         </header>
@@ -397,7 +399,7 @@ export function GitPanel({
                   void runOperation(
                     "branch",
                     () => switchBranch(project.id, branch),
-                    `Switched to ${branch}`,
+                    t("Switched to {{branch}}", { branch }),
                   );
                 }
               }}
@@ -419,23 +421,23 @@ export function GitPanel({
             <input
               value={branchDraft}
               onChange={(event) => setBranchDraft(event.target.value)}
-              placeholder="New branch"
-              aria-label="New branch name"
+              placeholder={t("New branch")}
+              aria-label={t("New branch name")}
               disabled={Boolean(busy)}
             />
-            <button type="submit" disabled={!branchDraft.trim() || Boolean(busy)} title="Create branch">
+            <button type="submit" disabled={!branchDraft.trim() || Boolean(busy)} title={t("Create branch")}>
               <Plus size={13} />
             </button>
           </form>
 
-          <div className="git-view-tabs" role="tablist" aria-label="Git workspace view">
+          <div className="git-view-tabs" role="tablist" aria-label={t("Git workspace view")}>
             <button
               role="tab"
               aria-selected={view === "changes"}
               data-active={view === "changes"}
               onClick={() => setView("changes")}
             >
-              Changes
+              {t("Changes")}
               {workspace?.files.length ? <span>{workspace.files.length}</span> : null}
             </button>
             <button
@@ -444,7 +446,7 @@ export function GitPanel({
               data-active={view === "history"}
               onClick={() => setView("history")}
             >
-              <History size={12} /> History
+              <History size={12} /> {t("History")}
             </button>
           </div>
 
@@ -454,26 +456,26 @@ export function GitPanel({
                 void runOperation(
                   "fetch",
                   () => fetchRepository(project.id),
-                  "Fetched remote changes",
+                  t("Fetched remote changes"),
                 )
               }
               disabled={!hasRemote || Boolean(busy)}
-              title={hasRemote ? "Fetch remote changes" : "No remote configured"}
+              title={hasRemote ? t("Fetch remote changes") : t("No remote configured")}
             >
-              <RefreshCw className={busy === "fetch" ? "spin" : ""} size={13} /> Fetch
+              <RefreshCw className={busy === "fetch" ? "spin" : ""} size={13} /> {t("Fetch")}
             </button>
             <button
               onClick={() =>
                 void runOperation(
                   "pull",
                   () => pullRepository(project.id),
-                  "Pulled remote changes",
+                  t("Pulled remote changes"),
                 )
               }
               disabled={!canPull || Boolean(busy)}
-              title={workspace?.upstream ? "Fast-forward pull" : "No upstream branch"}
+              title={workspace?.upstream ? t("Fast-forward pull") : t("No upstream branch")}
             >
-              <ArrowDownToLine size={13} /> Pull
+              <ArrowDownToLine size={13} /> {t("Pull")}
               {workspace?.behind ? <span>{workspace.behind}</span> : null}
             </button>
             <button
@@ -482,14 +484,14 @@ export function GitPanel({
                 void runOperation(
                   "push",
                   () => pushRepository(project.id),
-                  workspace?.upstream ? "Pushed commits" : "Published branch",
+                  workspace?.upstream ? t("Pushed commits") : t("Published branch"),
                 )
               }
               disabled={!canPush || Boolean(busy)}
-              title={workspace?.upstream ? "Push local commits" : "Publish branch to origin"}
+              title={workspace?.upstream ? t("Push local commits") : t("Publish branch to origin")}
             >
               <ArrowUpFromLine size={13} />
-              {workspace?.upstream ? "Push" : "Publish"}
+              {workspace?.upstream ? t("Push") : t("Publish")}
               {workspace?.ahead ? <span>{workspace.ahead}</span> : null}
             </button>
           </div>
@@ -501,22 +503,22 @@ export function GitPanel({
               <aside className="git-change-pane">
             {loading ? (
               <div className="git-loading-state">
-                <LoaderCircle className="spin" size={15} /> Reading repository
+                <LoaderCircle className="spin" size={15} /> {t("Reading repository")}
               </div>
             ) : workspace ? (
               <>
                 <GitFileSection
-                  title="Staged changes"
+                  title={t("Staged changes")}
                   files={stagedFiles}
                   selection={selection}
                   staged
-                  actionLabel="Unstage all"
+                  actionLabel={t("Unstage all")}
                   actionDisabled={Boolean(busy)}
                   onAction={() =>
                     void runOperation(
                       "unstage",
                       () => unstageGitFiles(project.id, stagedFiles.map((file) => file.path)),
-                      "Unstaged changes",
+                      t("Unstaged changes"),
                     )
                   }
                   onSelect={(path) => setSelection({ path, staged: true })}
@@ -524,22 +526,22 @@ export function GitPanel({
                     void runOperation(
                       "unstage",
                       () => unstageGitFiles(project.id, [path]),
-                      "Unstaged file",
+                      t("Unstaged file"),
                     )
                   }
                 />
                 <GitFileSection
-                  title="Changes"
+                  title={t("Changes")}
                   files={unstagedFiles}
                   selection={selection}
                   staged={false}
-                  actionLabel="Stage all"
+                  actionLabel={t("Stage all")}
                   actionDisabled={Boolean(busy)}
                   onAction={() =>
                     void runOperation(
                       "stage",
                       () => stageGitFiles(project.id, unstagedFiles.map((file) => file.path)),
-                      "Staged changes",
+                      t("Staged changes"),
                     )
                   }
                   onSelect={(path) => setSelection({ path, staged: false })}
@@ -547,15 +549,15 @@ export function GitPanel({
                     void runOperation(
                       "stage",
                       () => stageGitFiles(project.id, [path]),
-                      "Staged file",
+                      t("Staged file"),
                     )
                   }
                 />
                 {workspace.files.length === 0 ? (
                   <div className="git-clean-state">
                     <Check size={17} />
-                    <strong>Working tree clean</strong>
-                    <span>No local changes on {workspace.branch}.</span>
+                    <strong>{t("Working tree clean")}</strong>
+                    <span>{t("No local changes on {{branch}}.", { branch: workspace.branch })}</span>
                   </div>
                 ) : null}
                 <div className="git-commit-box">
@@ -563,10 +565,10 @@ export function GitPanel({
                     className="git-ai-row"
                     title={
                       selectedCommitProvider?.local
-                        ? "Only the staged diff is read. It stays on this Mac."
+                        ? t("Only the staged diff is read. It stays on this Mac.")
                         : selectedCommitProvider
-                          ? "Only the staged diff is sent to the selected provider."
-                          : "AI is optional. You can still write and commit a message manually."
+                          ? t("Only the staged diff is sent to the selected provider.")
+                          : t("AI is optional. You can still write and commit a message manually.")
                     }
                   >
                     <label className="git-provider-select">
@@ -579,16 +581,16 @@ export function GitPanel({
                           window.localStorage.setItem(COMMIT_PROVIDER_STORAGE_KEY, providerId);
                         }}
                         disabled={providersLoading || commitProviders.length === 0 || Boolean(busy)}
-                        aria-label="Commit message provider"
+                        aria-label={t("Commit message provider")}
                       >
                         {commitProviders.length === 0 ? (
                           <option value="">
-                            {providersLoading ? "Detecting AI…" : "No AI provider"}
+                            {providersLoading ? t("Detecting AI…") : t("No AI provider")}
                           </option>
                         ) : null}
                         {commitProviders.map((provider) => (
                           <option key={provider.id} value={provider.id}>
-                            {provider.name} · {provider.local ? "local" : "cloud"}
+                            {provider.name} · {provider.local ? t("local") : t("cloud")}
                           </option>
                         ))}
                       </select>
@@ -607,7 +609,7 @@ export function GitPanel({
                       ) : (
                         <Sparkles size={12} />
                       )}
-                      Generate
+                      {t("Generate")}
                     </button>
                   </div>
                   {!providersLoading && !hasLocalProvider ? (
@@ -615,11 +617,11 @@ export function GitPanel({
                       <div className="git-local-ai-prompt">
                         <Cpu size={14} />
                         <div className="git-local-ai-copy">
-                          <strong>Run locally? Optional.</strong>
+                            <strong>{t("Run locally? Optional.")}</strong>
                           <span>
                             {commitProviders.length > 0
-                              ? "Keep using a cloud provider, or set up Ollama."
-                              : "Manual commits still work, or set up Ollama."}
+                              ? t("Keep using a cloud provider, or set up Ollama.")
+                              : t("Manual commits still work, or set up Ollama.")}
                           </span>
                           <code>ollama pull qwen3:4b</code>
                         </div>
@@ -633,10 +635,10 @@ export function GitPanel({
                               );
                             }}
                           >
-                            Not now
+                            {t("Not now")}
                           </button>
                           <button onClick={() => void handleOpenLocalAiSetup()}>
-                            Setup guide <ExternalLink size={10} />
+                            {t("Setup guide")} <ExternalLink size={10} />
                           </button>
                         </div>
                       </div>
@@ -645,15 +647,15 @@ export function GitPanel({
                         className="git-local-ai-link"
                         onClick={() => setLocalSetupExpanded(true)}
                       >
-                        <Cpu size={10} /> Local AI is optional
+                        <Cpu size={10} /> {t("Local AI is optional")}
                       </button>
                     )
                   ) : null}
                   <textarea
                     value={commitMessage}
                     onChange={(event) => setCommitMessage(event.target.value)}
-                    placeholder="Commit message"
-                    aria-label="Commit message"
+                    placeholder={t("Commit message")}
+                    aria-label={t("Commit message")}
                     rows={3}
                     disabled={Boolean(busy)}
                   />
@@ -667,7 +669,7 @@ export function GitPanel({
                     ) : (
                       <GitCommitHorizontal size={14} />
                     )}
-                    Commit {stagedFiles.length || ""}
+                    {t("Commit")} {stagedFiles.length || ""}
                   </button>
                 </div>
               </>
@@ -677,9 +679,9 @@ export function GitPanel({
               <main className="git-diff-pane">
                 <div className="git-diff-header">
                   <div>
-                    <strong title={selection?.path}>{selection?.path ?? "Select a changed file"}</strong>
+                    <strong title={selection?.path}>{selection?.path ?? t("Select a changed file")}</strong>
                     {selection ? (
-                      <span>{selection.staged ? "Staged diff" : "Working tree diff"}</span>
+                      <span>{selection.staged ? t("Staged diff") : t("Working tree diff")}</span>
                     ) : null}
                   </div>
                   {selection ? (
@@ -690,9 +692,9 @@ export function GitPanel({
                           setHistoryPath(selection.path);
                           setView("history");
                         }}
-                        title={`Show history for ${selection.path}`}
+                        title={t("Show history for {{path}}", { path: selection.path })}
                       >
-                        <FileClock size={12} /> File history
+                        <FileClock size={12} /> {t("File history")}
                       </button>
                       <FileStatus status={workspace?.files.find((file) => file.path === selection.path)?.status ?? ""} />
                     </div>
@@ -754,25 +756,26 @@ function GitHistoryTimeline({
   onShowAll: () => void;
   onLoadMore: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <aside className="git-history-pane">
       <header className="git-history-scope">
         <div>
-          <span><History size={11} /> {filePath ? "FILE HISTORY" : "RECENT COMMITS"}</span>
+          <span><History size={11} /> {filePath ? t("FILE HISTORY") : t("RECENT COMMITS")}</span>
           {filePath ? <strong title={filePath}>{filePath}</strong> : null}
         </div>
-        {filePath ? <button onClick={onShowAll}>All commits</button> : null}
+        {filePath ? <button onClick={onShowAll}>{t("All commits")}</button> : null}
       </header>
 
       {loading && commits.length === 0 ? (
         <div className="git-loading-state">
-          <LoaderCircle className="spin" size={15} /> Reading history
+          <LoaderCircle className="spin" size={15} /> {t("Reading history")}
         </div>
       ) : commits.length === 0 ? (
         <div className="git-history-empty">
           <GitCommitHorizontal size={18} />
-          <strong>No commits found</strong>
-          <span>{filePath ? "This file has no committed history yet." : "This repository has no commits yet."}</span>
+          <strong>{t("No commits found")}</strong>
+          <span>{filePath ? t("This file has no committed history yet.") : t("This repository has no commits yet.")}</span>
         </div>
       ) : (
         <div className="git-history-list">
@@ -804,10 +807,10 @@ function GitHistoryTimeline({
               disabled={loading}
             >
               {loading ? <LoaderCircle className="spin" size={11} /> : null}
-              Load older commits
+              {t("Load older commits")}
             </button>
           ) : (
-            <div className="git-history-end">End of history</div>
+            <div className="git-history-end">{t("End of history")}</div>
           )}
         </div>
       )}
@@ -834,11 +837,12 @@ function GitCommitDetailView({
   onCancelRevert: () => void;
   onConfirmRevert: () => void;
 }) {
+  const { t } = useI18n();
   if (loading) {
     return (
       <main className="git-history-detail">
         <div className="git-diff-empty">
-          <LoaderCircle className="spin" size={16} /> Reading commit
+          <LoaderCircle className="spin" size={16} /> {t("Reading commit")}
         </div>
       </main>
     );
@@ -847,7 +851,7 @@ function GitCommitDetailView({
     return (
       <main className="git-history-detail">
         <div className="git-diff-empty">
-          <GitCommitHorizontal size={19} /> Select a commit to inspect it.
+          <GitCommitHorizontal size={19} /> {t("Select a commit to inspect it.")}
         </div>
       </main>
     );
@@ -856,10 +860,10 @@ function GitCommitDetailView({
   const mergeCommit = detail.parents.length > 1;
   const revertDisabled = mergeCommit || workingTreeDirty || busy;
   const revertTitle = mergeCommit
-    ? "Merge commits are view-only because reverting one requires choosing a mainline parent"
+    ? t("Merge commits are view-only because reverting one requires choosing a mainline parent")
     : workingTreeDirty
-      ? "Commit or stash local changes before reverting"
-      : "Create a new commit that reverses this commit";
+      ? t("Commit or stash local changes before reverting")
+      : t("Create a new commit that reverses this commit");
 
   return (
     <main className="git-history-detail">
@@ -879,7 +883,7 @@ function GitCommitDetailView({
             disabled={revertDisabled}
             title={revertTitle}
           >
-            <RotateCcw size={12} /> Revert commit
+            <RotateCcw size={12} /> {t("Revert commit")}
           </button>
         </div>
         {detail.body ? <p>{detail.body}</p> : null}
@@ -887,19 +891,19 @@ function GitCommitDetailView({
           <span><strong>{detail.authorName}</strong> &lt;{detail.authorEmail}&gt;</span>
           <span>{formatCommitDate(detail.authoredAt, false)}</span>
           <code title={detail.hash}>{detail.shortHash}</code>
-          {mergeCommit ? <em>Merge · view only</em> : null}
+          {mergeCommit ? <em>{t("Merge · view only")}</em> : null}
         </div>
         {confirming ? (
           <div className="git-revert-confirm">
             <AlertTriangle size={14} />
             <div>
-              <strong>Reverse {detail.shortHash} with a new commit?</strong>
-              <span>History stays intact. If Git finds a conflict, Runbox aborts the revert.</span>
+              <strong>{t("Reverse {{hash}} with a new commit?", { hash: detail.shortHash })}</strong>
+              <span>{t("History stays intact. If Git finds a conflict, Runbox aborts the revert.")}</span>
             </div>
-            <button onClick={onCancelRevert} disabled={busy}>Cancel</button>
+            <button onClick={onCancelRevert} disabled={busy}>{t("Cancel")}</button>
             <button onClick={onConfirmRevert} disabled={busy}>
               {busy ? <LoaderCircle className="spin" size={11} /> : <RotateCcw size={11} />}
-              Create revert
+              {t("Create revert")}
             </button>
           </div>
         ) : null}
@@ -907,8 +911,8 @@ function GitCommitDetailView({
 
       <section className="git-commit-files">
         <header>
-          <span>FILES <strong>{detail.files.length}</strong></span>
-          {detail.patchTruncated ? <em>Patch truncated</em> : null}
+          <span>{t("FILES")} <strong>{detail.files.length}</strong></span>
+          {detail.patchTruncated ? <em>{t("Patch truncated")}</em> : null}
         </header>
         <div>
           {detail.files.map((file) => (
@@ -924,7 +928,7 @@ function GitCommitDetailView({
       </section>
 
       <div className="git-commit-patch-header">
-        <span>PATCH</span>
+        <span>{t("PATCH")}</span>
         <code>{detail.shortHash}</code>
       </div>
       <DiffView contents={detail.patch} loading={false} hasSelection />
@@ -953,6 +957,7 @@ function GitFileSection({
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
 }) {
+  const { t } = useI18n();
   if (files.length === 0) return null;
   return (
     <section className="git-file-section">
@@ -973,8 +978,8 @@ function GitFileSection({
                 className="git-stage-toggle"
                 onClick={() => onToggle(file.path)}
                 disabled={actionDisabled}
-                aria-label={`${staged ? "Unstage" : "Stage"} ${file.path}`}
-                title={staged ? "Unstage file" : "Stage file"}
+                aria-label={`${staged ? t("Unstage") : t("Stage")} ${file.path}`}
+                title={staged ? t("Unstage file") : t("Stage file")}
               >
                 {staged ? <Minus size={12} /> : <Plus size={12} />}
               </button>
@@ -1008,15 +1013,16 @@ function DiffView({
   loading: boolean;
   hasSelection: boolean;
 }) {
+  const { t } = useI18n();
   const lines = useMemo(() => contents.split("\n"), [contents]);
   if (loading) {
-    return <div className="git-diff-empty"><LoaderCircle className="spin" size={16} /> Reading diff</div>;
+    return <div className="git-diff-empty"><LoaderCircle className="spin" size={16} /> {t("Reading diff")}</div>;
   }
   if (!hasSelection) {
-    return <div className="git-diff-empty"><GitCommitHorizontal size={19} /> Select a file to review its changes.</div>;
+    return <div className="git-diff-empty"><GitCommitHorizontal size={19} /> {t("Select a file to review its changes.")}</div>;
   }
   if (!contents.trim()) {
-    return <div className="git-diff-empty">No textual diff for this file.</div>;
+    return <div className="git-diff-empty">{t("No textual diff for this file.")}</div>;
   }
   return (
     <pre className="git-diff">

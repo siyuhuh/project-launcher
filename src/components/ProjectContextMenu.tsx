@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useI18n } from "../lib/i18n";
 import type { ProjectView } from "../types";
 
 interface Props {
@@ -48,6 +49,7 @@ export function ProjectContextMenu({
   onOpenTerminal,
   onEdit,
 }: Props) {
+  const { t } = useI18n();
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuPosition, setMenuPosition] = useState<MenuPosition>({
     left: position.x,
@@ -130,19 +132,19 @@ export function ProjectContextMenu({
       className="project-context-menu"
       style={style}
       role="menu"
-      aria-label={`Actions for ${project.name}`}
+      aria-label={t("Actions for {{name}}", { name: project.name })}
       onKeyDown={handleKeyDown}
     >
-      <MenuItem icon={FolderOpen} label="Reveal in Finder" onClick={() => invoke(onOpenFolder)} />
-      <MenuItem icon={TerminalSquare} label="Open in Terminal" onClick={() => invoke(onOpenTerminal)} />
-      <MenuItem icon={Copy} label="Copy project path" onClick={() => invoke(onCopyPath)} />
+      <MenuItem icon={FolderOpen} label={t("Reveal in Finder")} onClick={() => invoke(onOpenFolder)} />
+      <MenuItem icon={TerminalSquare} label={t("Open in Terminal")} onClick={() => invoke(onOpenTerminal)} />
+      <MenuItem icon={Copy} label={t("Copy project path")} onClick={() => invoke(onCopyPath)} />
 
       <MenuSeparator />
-      <MenuItem icon={Activity} label="Tasks and health" onClick={() => invoke(onTasks)} />
-      <MenuItem icon={Wrench} label="Developer tools" onClick={() => invoke(onTools)} />
+      <MenuItem icon={Activity} label={t("Tasks and health")} onClick={() => invoke(onTasks)} />
+      <MenuItem icon={Wrench} label={t("Developer tools")} onClick={() => invoke(onTools)} />
 
       <MenuSeparator />
-      <MenuItem icon={Settings2} label="Edit project" onClick={() => invoke(onEdit)} />
+      <MenuItem icon={Settings2} label={t("Edit project")} onClick={() => invoke(onEdit)} />
     </div>,
     document.body,
   );

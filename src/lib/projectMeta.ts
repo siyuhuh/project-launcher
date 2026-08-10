@@ -13,36 +13,48 @@ export function commandTag(command: string): CommandTag {
   return "other";
 }
 
-export function projectActivity(project: ProjectView): string {
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+export function projectActivity(project: ProjectView, t: Translate = (key) => key): string {
   if (project.status === "running") {
     const taskLabel =
-      project.taskCount > 1 ? `${project.runningTaskCount}/${project.taskCount} tasks · ` : "";
-    return `${taskLabel}Running for ${elapsedTime(project.startedAt)}`;
+      project.taskCount > 1
+        ? t("{{running}}/{{total}} tasks · ", {
+            running: project.runningTaskCount,
+            total: project.taskCount,
+          })
+        : "";
+    return `${taskLabel}${t("Running for {{time}}", { time: elapsedTime(project.startedAt, t) })}`;
   }
   if (project.crashedTaskCount > 0) {
-    return `${project.crashedTaskCount} task${project.crashedTaskCount === 1 ? "" : "s"} crashed`;
+    return project.crashedTaskCount === 1
+      ? t("{{count}} task crashed", { count: project.crashedTaskCount })
+      : t("{{count}} tasks crashed", { count: project.crashedTaskCount });
   }
   if (project.startedAt) {
-    return `Opened ${relativeTime(project.startedAt)}`;
+    return t("Opened {{time}}", { time: relativeTime(project.startedAt, t) });
   }
-  return "Not opened yet";
+  return t("Not opened yet");
 }
 
-function relativeTime(timestamp: number): string {
+function relativeTime(timestamp: number, t: Translate): string {
   const elapsed = Math.max(0, Math.floor(Date.now() / 1_000) - timestamp);
-  if (elapsed < 60) return "just now";
-  if (elapsed < 3_600) return `${Math.floor(elapsed / 60)}m ago`;
-  if (elapsed < 86_400) return `${Math.floor(elapsed / 3_600)}h ago`;
-  if (elapsed < 604_800) return `${Math.floor(elapsed / 86_400)}d ago`;
+  if (elapsed < 60) return t("just now");
+  if (elapsed < 3_600) return t("{{count}}m ago", { count: Math.floor(elapsed / 60) });
+  if (elapsed < 86_400) return t("{{count}}h ago", { count: Math.floor(elapsed / 3_600) });
+  if (elapsed < 604_800) return t("{{count}}d ago", { count: Math.floor(elapsed / 86_400) });
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
     timestamp * 1_000,
   );
 }
 
-function elapsedTime(timestamp: number | null): string {
-  if (!timestamp) return "a moment";
+function elapsedTime(timestamp: number | null, t: Translate): string {
+  if (!timestamp) return t("a moment");
   const elapsed = Math.max(0, Math.floor(Date.now() / 1_000) - timestamp);
-  if (elapsed < 60) return `${elapsed}s`;
-  if (elapsed < 3_600) return `${Math.floor(elapsed / 60)}m`;
-  return `${Math.floor(elapsed / 3_600)}h ${Math.floor((elapsed % 3_600) / 60)}m`;
+  if (elapsed < 60) return t("{{count}}s", { count: elapsed });
+  if (elapsed < 3_600) return t("{{count}}m", { count: Math.floor(elapsed / 60) });
+  return t("{{hours}}h {{minutes}}m", {
+    hours: Math.floor(elapsed / 3_600),
+    minutes: Math.floor((elapsed % 3_600) / 60),
+  });
 }

@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { getDeveloperTools, openDeveloperTool } from "../lib/backend";
+import { useI18n } from "../lib/i18n";
 import type { DeveloperTool, ProjectView } from "../types";
 
 interface Props {
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function DeveloperToolsPanel({ project, onClose, onNotify }: Props) {
+  const { t } = useI18n();
   const [tools, setTools] = useState<DeveloperTool[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyToolId, setBusyToolId] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function DeveloperToolsPanel({ project, onClose, onNotify }: Props) {
     setBusyToolId(tool.id);
     try {
       await openDeveloperTool(project.id, tool.id);
-      onNotify(`Opened ${project.name} in ${tool.name}`, "success");
+      onNotify(t("Opened {{project}} in {{tool}}", { project: project.name, tool: tool.name }), "success");
     } catch (error) {
       onNotify(errorMessage(error), "error");
     } finally {
@@ -69,12 +71,12 @@ export function DeveloperToolsPanel({ project, onClose, onNotify }: Props) {
         className="tools-panel"
         role="dialog"
         aria-modal="true"
-        aria-label={`Developer tools for ${project.name}`}
+        aria-label={t("Developer tools for {{name}}", { name: project.name })}
       >
         <header className="tools-panel-header">
           <div>
             <div className="tools-panel-kicker">
-              <Wrench size={12} /> DEVELOPER TOOLS
+              <Wrench size={12} /> {t("DEVELOPER TOOLS")}
             </div>
             <h2>{project.name}</h2>
             <p title={project.path}>{project.path}</p>
@@ -82,7 +84,7 @@ export function DeveloperToolsPanel({ project, onClose, onNotify }: Props) {
           <button
             className="panel-close-button"
             onClick={onClose}
-            aria-label="Close developer tools"
+            aria-label={t("Close developer tools")}
           >
             <X size={16} />
           </button>
@@ -90,21 +92,21 @@ export function DeveloperToolsPanel({ project, onClose, onNotify }: Props) {
 
         {loading ? (
           <div className="tools-loading-state">
-            <LoaderCircle className="spin" size={16} /> Detecting local tools
+            <LoaderCircle className="spin" size={16} /> {t("Detecting local tools")}
           </div>
         ) : (
           <div className="tools-panel-body">
             <ToolSection
-              title="Open in editor"
-              detail="Detected on this Mac"
+              title={t("Open in editor")}
+              detail={t("Detected on this Mac")}
               tools={editors}
-              empty="No supported editor was detected. Runbox checks Cursor, VS Code, Zed, Nova, Sublime Text, and JetBrains IDEs."
+              empty={t("No supported editor was detected. Runbox checks Cursor, VS Code, Zed, Nova, Sublime Text, and JetBrains IDEs.")}
               busyToolId={busyToolId}
               onOpen={(tool) => void handleOpen(tool)}
             />
             <ToolSection
-              title="Project shortcuts"
-              detail="System and repository"
+              title={t("Project shortcuts")}
+              detail={t("System and repository")}
               tools={shortcuts}
               busyToolId={busyToolId}
               onOpen={(tool) => void handleOpen(tool)}

@@ -15,6 +15,7 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { projectActivity } from "../lib/projectMeta";
+import { useI18n } from "../lib/i18n";
 import type { GitStatus, ProjectEndpoint, ProjectView } from "../types";
 
 interface Props {
@@ -62,6 +63,7 @@ export function ProjectCard({
   onDrop,
   onDragEnd,
 }: Props) {
+  const { t } = useI18n();
   const running = project.status === "running";
 
   return (
@@ -87,7 +89,7 @@ export function ProjectCard({
       <div className="card-topline">
         <div className="project-heading">
           {canReorder ? (
-            <span className="drag-handle" title="Drag to reorder">
+            <span className="drag-handle" title={t("Drag projects to reorder")}>
               <GripVertical size={14} />
             </span>
           ) : null}
@@ -95,7 +97,7 @@ export function ProjectCard({
             <div className="project-title-row">
               <span
                 className="finder-tag-dot"
-                title={projectAccentTitle(project)}
+                title={projectAccentTitle(project, t)}
               />
               <h2 title={project.name}>{project.name}</h2>
             </div>
@@ -104,9 +106,9 @@ export function ProjectCard({
                 className="activity-label"
                 data-running={running}
                 data-crashed={project.crashedTaskCount > 0}
-                title={activityTitle(project)}
+                title={activityTitle(project, t)}
               >
-                {projectActivity(project)}
+                {projectActivity(project, t)}
               </span>
               <GitStatusBadge
                 status={project.gitStatus}
@@ -123,8 +125,8 @@ export function ProjectCard({
               const rect = event.currentTarget.getBoundingClientRect();
               onOpenMenu({ x: rect.right, y: rect.bottom + 5 });
             }}
-            aria-label={`More actions for ${project.name}`}
-            title="More actions"
+            aria-label={t("More actions for {{name}}", { name: project.name })}
+            title={t("More actions")}
           >
             <MoreHorizontal size={14} />
           </button>
@@ -133,8 +135,8 @@ export function ProjectCard({
             data-active={project.favorite}
             onClick={onFavorite}
             disabled={favoritePending}
-            aria-label={project.favorite ? `Unpin ${project.name}` : `Pin ${project.name}`}
-            title={project.favorite ? "Unpin project" : "Pin project"}
+            aria-label={project.favorite ? t("Unpin {{name}}", { name: project.name }) : t("Pin {{name}}", { name: project.name })}
+            title={project.favorite ? t("Unpin project") : t("Pin project")}
           >
             <Star size={14} fill={project.favorite ? "currentColor" : "none"} />
           </button>
@@ -144,21 +146,21 @@ export function ProjectCard({
       <div className="card-actions">
         <button className="run-button" data-running={running} onClick={onToggle} disabled={pending}>
           <ActionIcon pending={pending} running={running} />
-          {actionLabel(pending, running)}
+          {actionLabel(pending, running, t)}
         </button>
         <div className="command-line" title={project.command}>
           <span>$</span><code>{project.command}</code>
-          {project.taskCount > 1 ? <em>{project.taskCount} tasks</em> : null}
+          {project.taskCount > 1 ? <em>{t("{{count}} tasks", { count: project.taskCount })}</em> : null}
         </div>
       </div>
 
       <div className="card-footer">
         {endpoints.length > 0 ? (
-          <div className="project-endpoints" aria-label="Local development addresses">
+          <div className="project-endpoints" aria-label={t("Local development addresses")}>
             <button
               className="project-endpoint-button"
               onClick={() => onOpenEndpoint(endpoints[0])}
-              title={`Open ${endpoints[0].url} · ${endpoints[0].taskName}`}
+              title={t("Open {{url}} · {{task}}", { url: endpoints[0].url, task: endpoints[0].taskName })}
             >
               <Globe2 size={12} />
               <span>localhost:{endpoints[0].port}</span>
@@ -168,44 +170,44 @@ export function ProjectCard({
               <button
                 className="project-endpoint-more"
                 onClick={onLogs}
-                title={`Show all ${endpoints.length} listening addresses`}
-                aria-label={`Show all ${endpoints.length} listening addresses`}
+                title={t("Show all {{count}} listening addresses", { count: endpoints.length })}
+                aria-label={t("Show all {{count}} listening addresses", { count: endpoints.length })}
               >
                 +{endpoints.length - 1}
               </button>
             ) : null}
           </div>
         ) : null}
-        <div className="card-quick-actions" aria-label="Project shortcuts">
+        <div className="card-quick-actions" aria-label={t("Project shortcuts")}>
           <button
             className="icon-button card-quick-action"
             onClick={onLogs}
-            title="Tasks and health"
-            aria-label={`Open tasks and health for ${project.name}`}
+            title={t("Tasks and health")}
+            aria-label={t("Open tasks and health for {{name}}", { name: project.name })}
           >
             <Activity size={13} />
           </button>
           <button
             className="icon-button card-quick-action"
             onClick={onOpenFolder}
-            title="Reveal in Finder"
-            aria-label={`Reveal ${project.name} in Finder`}
+            title={t("Reveal in Finder")}
+            aria-label={t("Reveal {{name}} in Finder", { name: project.name })}
           >
             <FolderOpen size={13} />
           </button>
           <button
             className="icon-button card-quick-action"
             onClick={onOpenTerminal}
-            title="Open in Terminal"
-            aria-label={`Open ${project.name} in Terminal`}
+            title={t("Open in Terminal")}
+            aria-label={t("Open {{name}} in Terminal", { name: project.name })}
           >
             <TerminalSquare size={13} />
           </button>
           <button
             className="icon-button card-quick-action"
             onClick={onEdit}
-            title="Edit project"
-            aria-label={`Edit ${project.name}`}
+            title={t("Edit project")}
+            aria-label={t("Edit {{name}}", { name: project.name })}
           >
             <Settings2 size={13} />
           </button>
@@ -224,6 +226,7 @@ export function GitStatusBadge({
   projectName?: string;
   onOpen?: () => void;
 }) {
+  const { t } = useI18n();
   const Wrapper = onOpen && status?.isRepo !== false ? "button" : "span";
 
   if (!status) {
@@ -231,17 +234,17 @@ export function GitStatusBadge({
       <span
         className="git-status"
         data-state="checking"
-        title="Reading the current Git branch and changed files"
+        title={t("Reading the current Git branch and changed files")}
       >
         <LoaderCircle className="spin" size={10} />
-        <span>Checking Git</span>
+        <span>{t("Checking Git")}</span>
       </span>
     );
   }
   if (!status.isRepo) {
     return (
-      <span className="git-status" data-state="none" title="This folder is not a Git repository">
-        <GitBranch size={11} /> no git
+      <span className="git-status" data-state="none" title={t("This folder is not a Git repository")}>
+        <GitBranch size={11} /> {t("no git")}
       </span>
     );
   }
@@ -250,7 +253,7 @@ export function GitStatusBadge({
     status.ahead > 0 ? `↑${status.ahead}` : "",
     status.behind > 0 ? `↓${status.behind}` : "",
   ].filter(Boolean).join(" ");
-  const detail = status.dirty ? `${status.changed} changed` : "clean";
+  const detail = status.dirty ? `${status.changed} ${t("changed")}` : t("clean");
   const label = sync ? `${detail} ${sync}` : detail;
   return (
     <Wrapper
@@ -258,7 +261,7 @@ export function GitStatusBadge({
       data-state={status.dirty ? "dirty" : "clean"}
       title={`${status.branch} · ${label}`}
       onClick={onOpen}
-      aria-label={onOpen ? `Open Git workspace for ${projectName ?? "project"}` : undefined}
+      aria-label={onOpen ? t("Open Git workspace for {{name}}", { name: projectName ?? t("project") }) : undefined}
     >
       <GitBranch size={11} />
       <strong>{status.branch}</strong>
@@ -273,23 +276,23 @@ function ActionIcon({ pending, running }: { pending: boolean; running: boolean }
   return <Play size={12} fill="currentColor" />;
 }
 
-function actionLabel(pending: boolean, running: boolean): string {
-  if (pending) return "Working";
-  return running ? "Stop" : "Run";
+function actionLabel(pending: boolean, running: boolean, t: (key: string) => string): string {
+  if (pending) return t("Working");
+  return running ? t("Stop") : t("Run");
 }
 
-function activityTitle(project: ProjectView): string {
-  if (!project.startedAt) return "This project has not been started with Runbox yet";
+function activityTitle(project: ProjectView, t: (key: string) => string): string {
+  if (!project.startedAt) return t("This project has not been started with Runbox yet");
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(project.startedAt * 1_000);
 }
 
-function projectAccentTitle(project: ProjectView): string {
-  if (project.finderTagColor) return `${project.finderTagColor} Finder tag`;
-  if (project.crashedTaskCount > 0) return "A project task crashed";
-  if (project.status === "running") return "Project is running";
-  if (project.gitStatus?.dirty) return "Project has uncommitted changes";
-  return "No Finder tag";
+function projectAccentTitle(project: ProjectView, t: (key: string, values?: Record<string, string | number>) => string): string {
+  if (project.finderTagColor) return t("{{color}} Finder tag", { color: project.finderTagColor });
+  if (project.crashedTaskCount > 0) return t("A project task crashed");
+  if (project.status === "running") return t("Project is running");
+  if (project.gitStatus?.dirty) return t("Project has uncommitted changes");
+  return t("No Finder tag");
 }

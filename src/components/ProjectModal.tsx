@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { detectProject } from "../lib/backend";
+import { useI18n } from "../lib/i18n";
 import type { ProjectForm, ProjectTask } from "../types";
 
 interface Props {
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
+  const { t } = useI18n();
   const [form, setForm] = useState(() => withProjectTasks(project));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -151,14 +153,14 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
       >
         <header className="modal-header">
           <div>
-            <p className="eyebrow">{editing ? "EDIT ENTRY" : "NEW ENTRY"}</p>
-            <h2 id="project-modal-title">{editing ? "Project settings" : "Add a project"}</h2>
+            <p className="eyebrow">{editing ? t("EDIT ENTRY") : t("NEW ENTRY")}</p>
+            <h2 id="project-modal-title">{editing ? t("Project settings") : t("Add a project")}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          <button className="icon-button" onClick={onClose} aria-label={t("Close")}><X size={16} /></button>
         </header>
         <form onSubmit={submit}>
           <label className="field-label" htmlFor="project-name">
-            Name
+            {t("Name")}
             <input
               id="project-name"
               value={form.name}
@@ -169,7 +171,7 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
             />
           </label>
           <label className="field-label" htmlFor="project-path">
-            Project directory
+            {t("Project directory")}
             <span className="path-input">
               <input
                 id="project-path"
@@ -179,15 +181,15 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                 required
               />
               <button type="button" onClick={() => void chooseFolder()}>
-                <FolderOpen size={14} /> Browse
+                <FolderOpen size={14} /> {t("Browse")}
               </button>
             </span>
           </label>
           <section className="project-task-editor">
             <header>
               <div>
-                <strong>Project tasks</strong>
-                <span>Choose which long-running tasks start with the project.</span>
+                <strong>{t("Project tasks")}</strong>
+                <span>{t("Choose which long-running tasks start with the project.")}</span>
               </div>
               <div className="project-task-editor-actions">
                 <button
@@ -196,10 +198,10 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                   disabled={detectingTasks || !form.path.trim()}
                 >
                   <RefreshCw className={detectingTasks ? "spin" : undefined} size={12} />
-                  Import scripts
+                  {t("Import scripts")}
                 </button>
                 <button type="button" onClick={addTask}>
-                  <Plus size={13} /> Add task
+                  <Plus size={13} /> {t("Add task")}
                 </button>
               </div>
             </header>
@@ -213,7 +215,7 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                   <div className="project-task-edit-fields">
                     <div>
                       <label>
-                        <span>{index === 0 ? "Primary task" : "Task name"}</span>
+                        <span>{index === 0 ? t("Primary task") : t("Task name")}</span>
                         <input
                           value={task.name}
                           onChange={(event) => updateTask(index, { name: event.target.value })}
@@ -229,11 +231,11 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                             updateTask(index, { autoStart: event.target.checked })
                           }
                         />
-                        <span>Run with project</span>
+                        <span>{t("Run with project")}</span>
                       </label>
                     </div>
                     <label>
-                      <span>Command</span>
+                      <span>{t("Command")}</span>
                       <span className="command-input">
                         <span>$</span>
                         <input
@@ -247,12 +249,12 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                     <details className="task-reliability-settings">
                       <summary>
                         <ShieldCheck size={12} />
-                        <span>Reliability</span>
-                        <small>{readinessSummary(task)}</small>
+                        <span>{t("Reliability")}</span>
+                        <small>{readinessSummary(task, t)}</small>
                       </summary>
                       <div className="task-reliability-grid">
                         <label>
-                          <span>Ready when</span>
+                          <span>{t("Ready when")}</span>
                           <select
                             value={task.readiness.kind}
                             onChange={(event) =>
@@ -265,15 +267,15 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                               })
                             }
                           >
-                            <option value="process">Process stays running</option>
-                            <option value="port">Port is listening</option>
-                            <option value="http">HTTP endpoint responds</option>
-                            <option value="log">Log contains text</option>
+                            <option value="process">{t("Process stays running")}</option>
+                            <option value="port">{t("Port is listening")}</option>
+                            <option value="http">{t("HTTP endpoint responds")}</option>
+                            <option value="log">{t("Log contains text")}</option>
                           </select>
                         </label>
                         {task.readiness.kind !== "process" ? (
                           <label className="task-readiness-value">
-                            <span>{readinessValueLabel(task.readiness.kind)}</span>
+                            <span>{readinessValueLabel(task.readiness.kind, t)}</span>
                             <input
                               type={task.readiness.kind === "port" ? "number" : "text"}
                               min={task.readiness.kind === "port" ? 1 : undefined}
@@ -284,13 +286,13 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                                   readiness: { ...task.readiness, value: event.target.value },
                                 })
                               }
-                              placeholder={readinessPlaceholder(task.readiness.kind)}
+                              placeholder={readinessPlaceholder(task.readiness.kind, t)}
                               required
                             />
                           </label>
                         ) : null}
                         <label className="task-readiness-timeout">
-                          <span>Timeout</span>
+                          <span>{t("Timeout")}</span>
                           <span className="task-timeout-input">
                             <input
                               type="number"
@@ -307,13 +309,13 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                               }
                               required
                             />
-                            <small>sec</small>
+                            <small>{t("sec")}</small>
                           </span>
                         </label>
                       </div>
                       {form.tasks.length > 1 ? (
                         <div className="task-dependency-picker">
-                          <span><GitMerge size={11} /> Starts after</span>
+                          <span><GitMerge size={11} /> {t("Starts after")}</span>
                           <div>
                             {form.tasks.map((candidate, candidateIndex) =>
                               candidateIndex === index ? null : (
@@ -337,7 +339,7 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                     type="button"
                     onClick={() => removeTask(index)}
                     disabled={form.tasks.length === 1}
-                    aria-label={`Remove ${task.name || "task"}`}
+                    aria-label={t("Remove {{name}}", { name: task.name || t("task") })}
                   >
                     <X size={13} />
                   </button>
@@ -346,8 +348,7 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
             </div>
           </section>
           <p className="form-hint">
-            Commands use your login shell, so pnpm, NVM and other Terminal tools remain available.
-            The first task remains compatible with the existing `p project` command.
+            {t("Commands use your login shell, so pnpm, NVM and other Terminal tools remain available. The first task remains compatible with the existing `p project` command.")}
           </p>
           <footer className="modal-footer">
             {onDelete ? (
@@ -359,14 +360,14 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
                 disabled={deleting}
               >
                 {deleting ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
-                {confirmDelete ? "Click again to remove" : "Remove"}
+                {confirmDelete ? t("Click again to remove") : t("Remove")}
               </button>
             ) : <span />}
             <div>
-              <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+              <button className="secondary-button" type="button" onClick={onClose}>{t("Cancel")}</button>
               <button className="primary-button" type="submit" disabled={saving}>
                 {saving ? <LoaderCircle className="spin" size={14} /> : null}
-                {submitLabel(saving, editing)}
+                {submitLabel(saving, editing, t)}
               </button>
             </div>
           </footer>
@@ -376,29 +377,35 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
   );
 }
 
-function readinessSummary(task: ProjectTask): string {
+function readinessSummary(task: ProjectTask, t: (key: string, values?: Record<string, string | number>) => string): string {
   switch (task.readiness.kind) {
     case "port":
-      return task.readiness.value ? `Port ${task.readiness.value}` : "Port check";
+      return task.readiness.value ? `${t("Port")} ${task.readiness.value}` : t("Port check");
     case "http":
-      return task.readiness.value || "HTTP check";
+      return task.readiness.value || t("HTTP check");
     case "log":
-      return task.readiness.value ? `Log: ${task.readiness.value}` : "Log check";
+      return task.readiness.value ? `${t("Log")}: ${task.readiness.value}` : t("Log check");
     default:
-      return "Process check";
+      return t("Process check");
   }
 }
 
-function readinessValueLabel(kind: ProjectTask["readiness"]["kind"]): string {
-  if (kind === "port") return "Port";
-  if (kind === "http") return "HTTP URL";
-  return "Log phrase";
+function readinessValueLabel(
+  kind: ProjectTask["readiness"]["kind"],
+  t: (key: string) => string,
+): string {
+  if (kind === "port") return t("Port");
+  if (kind === "http") return t("HTTP URL");
+  return t("Log phrase");
 }
 
-function readinessPlaceholder(kind: ProjectTask["readiness"]["kind"]): string {
+function readinessPlaceholder(
+  kind: ProjectTask["readiness"]["kind"],
+  t: (key: string) => string,
+): string {
   if (kind === "port") return "3000";
   if (kind === "http") return "http://localhost:3000/health";
-  return "ready in";
+  return t("ready in");
 }
 
 function withProjectTasks(project: ProjectForm): ProjectForm {
@@ -418,9 +425,9 @@ function withProjectTasks(project: ProjectForm): ProjectForm {
   };
 }
 
-function submitLabel(saving: boolean, editing: boolean): string {
-  if (saving) return "Saving";
-  return editing ? "Save changes" : "Add project";
+function submitLabel(saving: boolean, editing: boolean, t: (key: string) => string): string {
+  if (saving) return t("Saving");
+  return editing ? t("Save changes") : t("Add project");
 }
 
 function errorMessage(error: unknown): string {

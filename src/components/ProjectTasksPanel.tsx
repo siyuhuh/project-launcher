@@ -28,6 +28,7 @@ import {
   stopProject,
   stopProjectTask,
 } from "../lib/backend";
+import { useI18n } from "../lib/i18n";
 import type { ProjectTaskView, ProjectView } from "../types";
 
 interface Props {
@@ -43,6 +44,7 @@ export function ProjectTasksPanel({
   onProjectRefresh,
   onNotify,
 }: Props) {
+  const { t } = useI18n();
   const [tasks, setTasks] = useState<ProjectTaskView[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [logContents, setLogContents] = useState("");
@@ -100,10 +102,10 @@ export function ProjectTasksPanel({
     try {
       if (task.status === "running") {
         await stopProjectTask(project.id, task.id);
-        onNotify(`${task.name} stopped`, "success");
+        onNotify(t("{{name}} stopped", { name: task.name }), "success");
       } else {
         await startProjectTask(project.id, task.id);
-        onNotify(`${task.name} started`, "success");
+        onNotify(t("{{name}} started", { name: task.name }), "success");
       }
       await refreshTasks();
       onProjectRefresh();
@@ -119,10 +121,10 @@ export function ProjectTasksPanel({
     try {
       if (projectRunning) {
         await stopProject(project.id);
-        onNotify(`${project.name} stopped`, "success");
+        onNotify(t("{{name}} stopped", { name: project.name }), "success");
       } else {
         await startProject(project.id);
-        onNotify(`${project.name} tasks started`, "success");
+        onNotify(t("{{name}} tasks started", { name: project.name }), "success");
       }
       await refreshTasks();
       onProjectRefresh();
@@ -158,13 +160,13 @@ export function ProjectTasksPanel({
       >
         <header className="task-workspace-header">
           <div>
-            <p className="task-workspace-kicker"><Activity size={13} /> TASKS &amp; HEALTH</p>
+            <p className="task-workspace-kicker"><Activity size={13} /> {t("TASKS & HEALTH")}</p>
             <h2 id="task-workspace-title">{project.name}</h2>
             <p>{project.path}</p>
           </div>
           <div className="task-workspace-header-actions">
             <span className="task-project-summary" data-running={projectRunning}>
-              <i /> {runningTaskCount}/{tasks.length} running
+              <i /> {runningTaskCount}/{tasks.length} {t("running")}
             </span>
             <button
               className="task-project-toggle"
@@ -178,9 +180,9 @@ export function ProjectTasksPanel({
                 squareSize={11}
                 playSize={12}
               />
-              {projectRunning ? "Stop all" : "Run project"}
+              {projectRunning ? t("Stop all") : t("Run project")}
             </button>
-            <button className="panel-close-button" onClick={onClose} aria-label="Close task workspace">
+            <button className="panel-close-button" onClick={onClose} aria-label={t("Close task workspace")}>
               <X size={16} />
             </button>
           </div>
@@ -189,12 +191,12 @@ export function ProjectTasksPanel({
         <div className="task-workspace-body">
           <aside className="task-list-pane">
             <header>
-              <span>PROJECT TASKS</span>
+              <span>{t("PROJECT TASKS")}</span>
               <strong>{tasks.length}</strong>
             </header>
             {loading ? (
               <div className="task-loading-state">
-                <LoaderCircle className="spin" size={14} /> Reading processes
+                <LoaderCircle className="spin" size={14} /> {t("Reading processes")}
               </div>
             ) : (
               <div className="task-list">
@@ -227,7 +229,7 @@ export function ProjectTasksPanel({
                     <section className="task-runtime-notice" data-tone="error">
                       <TriangleAlert size={14} />
                       <div>
-                        <strong>Port {selectedTask.portConflict.port} is already in use</strong>
+                        <strong>{t("Port {{port}} is already in use", { port: selectedTask.portConflict.port })}</strong>
                         <span>
                           {selectedTask.portConflict.processName} · PID {selectedTask.portConflict.pid}
                         </span>
@@ -238,14 +240,14 @@ export function ProjectTasksPanel({
                     <section className="task-runtime-notice" data-tone="error">
                       <CircleAlert size={14} />
                       <div>
-                        <strong>{taskStateLabel(selectedTask)}</strong>
+                        <strong>{taskStateLabel(selectedTask, t)}</strong>
                         <span>{selectedTask.lastError}</span>
                       </div>
                     </section>
                   ) : null}
                   <section className="task-port-section">
                     <header>
-                      <div><Network size={13} /> Listening ports</div>
+                      <div><Network size={13} /> {t("Listening ports")}</div>
                       <span>{selectedTask.ports.length}</span>
                     </header>
                     {selectedTask.ports.length > 0 ? (
@@ -271,23 +273,23 @@ export function ProjectTasksPanel({
                     ) : (
                       <p className="task-port-empty">
                         {selectedTask.status === "running"
-                          ? "No listening TCP ports detected yet."
-                          : "Start this task to detect its localhost addresses."}
+                          ? t("No listening TCP ports detected yet.")
+                          : t("Start this task to detect its localhost addresses.")}
                       </p>
                     )}
                   </section>
 
                   <section className="task-log-section">
                     <header>
-                      <div><FileText size={13} /> Recent output</div>
+                      <div><FileText size={13} /> {t("Recent output")}</div>
                       <button onClick={() => void clearSelectedLog()}>
-                        <Trash2 size={11} /> Clear
+                        <Trash2 size={11} /> {t("Clear")}
                       </button>
                     </header>
                     <pre>
                       {logContents || (
                         <span className="task-log-empty">
-                          No output yet. Start the task to stream its logs here.
+                          {t("No output yet. Start the task to stream its logs here.")}
                         </span>
                       )}
                     </pre>
@@ -295,7 +297,7 @@ export function ProjectTasksPanel({
                 </div>
               </>
             ) : (
-              <div className="task-empty-state">Choose a task to inspect its health.</div>
+              <div className="task-empty-state">{t("Choose a task to inspect its health.")}</div>
             )}
           </main>
         </div>
@@ -317,6 +319,7 @@ function TaskRow({
   onSelect: () => void;
   onToggle: () => void;
 }) {
+  const { t } = useI18n();
   const health = taskHealth(task);
   return (
     <div className="task-row" data-active={selected} data-health={health}>
@@ -327,18 +330,18 @@ function TaskRow({
           <code>{task.command}</code>
           <small>
             {task.status === "running"
-              ? `${taskStateLabel(task)} · ${formatCpu(task.cpuPercent)} CPU · ${formatMemory(task.memoryBytes)}`
-              : taskStateLabel(task)}
+              ? `${taskStateLabel(task, t)} · ${formatCpu(task.cpuPercent)} ${t("CPU")} · ${formatMemory(task.memoryBytes)}`
+              : taskStateLabel(task, t)}
           </small>
         </span>
-        {task.autoStart ? <span className="task-auto-badge">AUTO</span> : null}
+        {task.autoStart ? <span className="task-auto-badge">{t("AUTO")}</span> : null}
       </button>
       <button
         className="task-row-toggle"
         data-running={task.status === "running"}
         onClick={onToggle}
         disabled={pending}
-        aria-label={`${task.status === "running" ? "Stop" : "Start"} ${task.name}`}
+        aria-label={`${task.status === "running" ? t("Stop") : t("Start")} ${task.name}`}
       >
         <TaskActionIcon
           pending={pending}
@@ -361,6 +364,7 @@ function TaskHealthHeader({
   pending: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <header className="task-health-header" data-health={taskHealth(task)}>
       <div>
@@ -368,7 +372,7 @@ function TaskHealthHeader({
         <div>
           <div className="task-health-title">
             <h3>{task.name}</h3>
-            <span data-state={task.state}>{taskStateLabel(task)}</span>
+            <span data-state={task.state}>{taskStateLabel(task, t)}</span>
           </div>
           <code>$ {task.command}</code>
         </div>
@@ -385,35 +389,36 @@ function TaskHealthHeader({
           squareSize={10}
           playSize={11}
         />
-        {task.status === "running" ? "Stop task" : "Start task"}
+        {task.status === "running" ? t("Stop task") : t("Start task")}
       </button>
     </header>
   );
 }
 
 function HealthSummary({ task }: { task: ProjectTaskView }) {
+  const { t } = useI18n();
   return (
     <section className="task-health-grid">
       <HealthMetric
         icon={<Cpu size={13} />}
-        label="CPU"
+        label={t("CPU")}
         value={task.status === "running" ? formatCpu(task.cpuPercent) : "—"}
       />
       <HealthMetric
         icon={<HardDrive size={13} />}
-        label="Memory"
+        label={t("Memory")}
         value={task.status === "running" ? formatMemory(task.memoryBytes) : "—"}
       />
       <HealthMetric
         icon={<Activity size={13} />}
-        label="State"
-        value={taskStateLabel(task)}
+        label={t("State")}
+        value={taskStateLabel(task, t)}
         tone={task.state === "crashed" || task.state === "blocked" ? "error" : undefined}
       />
       <HealthMetric
         icon={task.exitReason === "crashed" ? <CircleAlert size={13} /> : <CircleStop size={13} />}
-        label={taskProcessLabel(task)}
-        value={taskProcessSummary(task)}
+        label={taskProcessLabel(task, t)}
+        value={taskProcessSummary(task, t)}
         tone={task.exitReason === "crashed" ? "error" : undefined}
       />
     </section>
@@ -440,6 +445,7 @@ function HealthMetric({
 }
 
 function TaskReliability({ task, tasks }: { task: ProjectTaskView; tasks: ProjectTaskView[] }) {
+  const { t } = useI18n();
   const dependencyNames = task.dependsOn.map(
     (dependencyId) => tasks.find((candidate) => candidate.id === dependencyId)?.name ?? dependencyId,
   );
@@ -448,21 +454,21 @@ function TaskReliability({ task, tasks }: { task: ProjectTaskView; tasks: Projec
       <div>
         <ShieldCheck size={13} />
         <span>
-          <small>Ready when</small>
-          <strong>{readinessDescription(task)}</strong>
+          <small>{t("Ready when")}</small>
+          <strong>{readinessDescription(task, t)}</strong>
         </span>
       </div>
       <div>
         <GitMerge size={13} />
         <span>
-          <small>Starts after</small>
-          <strong>{dependencyNames.length > 0 ? dependencyNames.join(" · ") : "No dependencies"}</strong>
+          <small>{t("Starts after")}</small>
+          <strong>{dependencyNames.length > 0 ? dependencyNames.join(" · ") : t("No dependencies")}</strong>
         </span>
       </div>
       <div>
         <Timer size={13} />
         <span>
-          <small>Timeout</small>
+          <small>{t("Timeout")}</small>
           <strong>{task.readiness.timeoutSeconds}s</strong>
         </span>
       </div>
@@ -501,49 +507,49 @@ function TaskActionIcon({
   return <Play size={playSize} fill="currentColor" />;
 }
 
-function taskStateLabel(task: ProjectTaskView): string {
+function taskStateLabel(task: ProjectTaskView, t: (key: string) => string): string {
   switch (task.state) {
     case "ready":
-      return "Ready";
+      return t("Ready");
     case "running":
-      return "Running";
+      return t("Running");
     case "waiting":
-      return "Waiting";
+      return t("Waiting");
     case "starting":
-      return "Starting";
+      return t("Starting");
     case "blocked":
-      return "Blocked";
+      return t("Blocked");
     case "crashed":
-      return task.exitCode === null ? "Crashed" : `Crashed · exit ${task.exitCode}`;
+      return task.exitCode === null ? t("Crashed") : `${t("Crashed")} · ${t("exit")} ${task.exitCode}`;
     case "exited":
-      return task.exitCode === null ? "Completed" : `Completed · exit ${task.exitCode}`;
+      return task.exitCode === null ? t("Completed") : `${t("Completed")} · ${t("exit")} ${task.exitCode}`;
     case "stopped":
-      return task.exitReason === "stopped" ? "Stopped by you" : "Stopped";
+      return task.exitReason === "stopped" ? t("Stopped by you") : t("Stopped");
   }
 }
 
-function readinessDescription(task: ProjectTaskView): string {
+function readinessDescription(task: ProjectTaskView, t: (key: string) => string): string {
   switch (task.readiness.kind) {
     case "process":
-      return "Process stays alive";
+      return t("Process stays alive");
     case "port":
-      return `Port ${task.readiness.value} listens`;
+      return `${t("Port")} ${task.readiness.value} ${t("listens")}`;
     case "http":
       return task.readiness.value;
     case "log":
-      return `Log contains “${task.readiness.value}”`;
+      return `${t("Log contains") } “${task.readiness.value}”`;
   }
 }
 
-function taskProcessSummary(task: ProjectTaskView): string {
-  if (task.status === "running") return formatUptime(task.startedAt);
+function taskProcessSummary(task: ProjectTaskView, t: (key: string) => string): string {
+  if (task.status === "running") return formatUptime(task.startedAt, t);
   if (task.pid) return `PID ${task.pid}`;
   return task.exitCode === null ? "—" : String(task.exitCode);
 }
 
-function taskProcessLabel(task: ProjectTaskView): string {
-  if (task.status === "running") return "Uptime";
-  return task.pid ? "Process" : "Exit code";
+function taskProcessLabel(task: ProjectTaskView, t: (key: string) => string): string {
+  if (task.status === "running") return t("Uptime");
+  return task.pid ? t("Process") : t("Exit code");
 }
 
 function formatCpu(value: number): string {
@@ -557,8 +563,8 @@ function formatMemory(bytes: number): string {
   return `${(megabytes / 1024).toFixed(1)} GB`;
 }
 
-function formatUptime(startedAt: number | null): string {
-  if (!startedAt) return "a moment";
+function formatUptime(startedAt: number | null, t: (key: string) => string): string {
+  if (!startedAt) return t("a moment");
   const elapsed = Math.max(0, Math.floor(Date.now() / 1_000) - startedAt);
   if (elapsed < 60) return `${elapsed}s`;
   if (elapsed < 3_600) return `${Math.floor(elapsed / 60)}m`;

@@ -63,6 +63,7 @@ import {
   updateUiScale,
 } from "./lib/preferences";
 import type { Project, ProjectEndpoint, ProjectForm, ProjectView } from "./types";
+import { useI18n } from "./lib/i18n";
 import "./App.css";
 
 type Filter = "all" | "favorites" | "running" | "stopped" | "gitChanges";
@@ -103,6 +104,7 @@ const TAG_OPTIONS: Array<{ value: TagFilter; label: string }> = [
 ];
 
 export default function App() {
+  const { t } = useI18n();
   const [projects, setProjects] = useState<ProjectView[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [sortMode, setSortMode] = useState<SortMode>(() => {
@@ -364,11 +366,11 @@ export default function App() {
     await withPending(project.id, async () => {
       if (running) {
         await stopProject(project.id);
-        showToast(`${project.name} stopped`, "success");
+        showToast(t("{{name}} stopped", { name: project.name }), "success");
       } else {
         await startProject(project.id);
         setTaskProjectId(project.id);
-        showToast(`${project.name} tasks started`, "success");
+        showToast(t("{{name}} tasks started", { name: project.name }), "success");
       }
     });
   }
@@ -394,7 +396,7 @@ export default function App() {
   async function copyProjectValue(value: string, label: string) {
     try {
       await writeClipboardText(value);
-      showToast(`${label} copied`, "success");
+      showToast(t("{{label}} copied", { label: t(label) }), "success");
     } catch (error) {
       showToast(errorMessage(error), "error");
     }
@@ -405,7 +407,7 @@ export default function App() {
       const project: Project = await saveProject(form);
       setModalProject(null);
       await refreshProjects();
-      showToast(`${project.name} saved`, "success");
+      showToast(t("{{name}} saved", { name: project.name }), "success");
     } catch (error) {
       showToast(errorMessage(error), "error");
       throw error;
@@ -418,7 +420,7 @@ export default function App() {
       setModalProject(null);
       if (taskProjectId === project.id) setTaskProjectId(null);
       await refreshProjects();
-      showToast(`${project.name} removed`, "success");
+      showToast(t("{{name}} removed", { name: project.name }), "success");
     } catch (error) {
       showToast(errorMessage(error), "error");
       throw error;
@@ -451,7 +453,7 @@ export default function App() {
     const target = manualProjects.find((project) => project.id === targetId);
     if (!source || !target || source.favorite !== target.favorite) {
       clearDragState();
-      showToast("Pinned and unpinned projects are ordered separately", "error");
+      showToast(t("Pinned and unpinned projects are ordered separately"), "error");
       return;
     }
 
@@ -488,12 +490,12 @@ export default function App() {
       const path = await open({
         directory: true,
         multiple: false,
-        title: "Choose the folder that contains your projects",
+        title: t("Choose the folder that contains your projects"),
         defaultPath: commonProjectRoot,
       });
       if (!path) return;
       await refreshFinderColors();
-      showToast("Finder colors enabled", "success");
+      showToast(t("Finder colors enabled"), "success");
       window.setTimeout(() => void refreshProjects(), 300);
     } catch (error) {
       showToast(errorMessage(error), "error");
@@ -506,7 +508,7 @@ export default function App() {
         <button
           type="button"
           className="window-drag-handle"
-          aria-label="Drag to move window"
+          aria-label={t("Drag to move window")}
           data-tauri-drag-region
           onMouseDown={(event) => {
             if (event.button === 0) startWindowDrag();
@@ -520,8 +522,8 @@ export default function App() {
           type="button"
           className="sidebar-collapse-button"
           onClick={() => setSidebarCollapsed((current) => !current)}
-          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={`${sidebarCollapsed ? "Expand" : "Collapse"} sidebar (⌘B)`}
+          aria-label={sidebarCollapsed ? t("Expand sidebar") : t("Collapse sidebar")}
+          title={`${sidebarCollapsed ? t("Expand") : t("Collapse")} sidebar (⌘B)`}
         >
           {sidebarCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
         </button>
@@ -529,25 +531,25 @@ export default function App() {
           <span className="brand-mark"><Terminal size={17} strokeWidth={2.2} /></span>
           <span className="brand-name">runbox<span className="brand-cursor">_</span></span>
         </div>
-        <nav className="nav-list" aria-label="Project filters">
+        <nav className="nav-list" aria-label={t("Project filters")}>
           <FilterButton
             active={filter === "all"}
             icon={<LayoutGrid size={15} />}
-            label="All projects"
+            label={t("All projects")}
             count={projects.length}
             onClick={() => setFilter("all")}
           />
           <FilterButton
             active={filter === "favorites"}
             icon={<Star size={15} />}
-            label="Pinned"
+            label={t("Pinned")}
             count={favoriteCount}
             onClick={() => setFilter("favorites")}
           />
           <FilterButton
             active={filter === "running"}
             icon={<Activity size={15} />}
-            label="Running"
+            label={t("Running")}
             count={runningCount}
             onClick={() => setFilter("running")}
             accent
@@ -555,57 +557,57 @@ export default function App() {
           <FilterButton
             active={filter === "gitChanges"}
             icon={<GitBranch size={15} />}
-            label="Git changes"
+            label={t("Git changes")}
             count={gitChangesCount}
             onClick={() => setFilter("gitChanges")}
           />
           <FilterButton
             active={filter === "stopped"}
             icon={<CircleStop size={15} />}
-            label="Stopped"
+            label={t("Stopped")}
             count={projects.length - runningCount}
             onClick={() => setFilter("stopped")}
           />
         </nav>
-        <div className="sidebar-section-label">WORKSPACES</div>
+        <div className="sidebar-section-label">{t("Workspaces")}</div>
         <button
           className="sidebar-workspaces-button"
           onClick={() => setWorkspaceGroupsOpen(true)}
-          title="Workspace groups"
+          title={t("Workspace groups")}
         >
           <Layers3 size={15} />
-          <span>Workspace groups</span>
+          <span>{t("Workspace groups")}</span>
           <strong>{workspaceGroupCount}</strong>
         </button>
         <div className="sidebar-spacer" />
         <button
           className="sidebar-settings-button"
           onClick={() => setPreferencesOpen(true)}
-          title="Preferences"
+          title={t("Preferences")}
         >
           <Settings2 size={14} />
-          <span>Preferences</span>
+          <span>{t("Preferences")}</span>
           <kbd>⌘,</kbd>
         </button>
         <div className="cli-hint">
-          <div className="cli-hint-label">TERMINAL SHORTCUT</div>
+          <div className="cli-hint-label">{t("TERMINAL SHORTCUT")}</div>
           <code><span>$</span> p &lt;project&gt;</code>
-          <p>Same projects. Same status.</p>
+          <p>{t("Same projects. Same status.")}</p>
         </div>
         <button
           className="sidebar-add-button"
           onClick={() => setModalProject(EMPTY_FORM)}
-          title="Add project"
+          title={t("Add project")}
         >
-          <Plus size={15} /> <span>Add project</span> <kbd>⌘N</kbd>
+          <Plus size={15} /> <span>{t("Add project")}</span> <kbd>⌘N</kbd>
         </button>
       </aside>
 
       <main className="main-content">
         <header className="content-header">
           <div>
-            <p className="eyebrow">LOCAL WORKSPACE</p>
-            <h1>{filterTitle(filter)}</h1>
+            <p className="eyebrow">{t("LOCAL WORKSPACE")}</p>
+            <h1>{t(filterTitle(filter))}</h1>
           </div>
           <div className="header-actions">
             <label className="search-control" htmlFor="project-search">
@@ -614,61 +616,61 @@ export default function App() {
                 id="project-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search"
+                placeholder={t("Search")}
                 autoComplete="off"
               />
               {query ? (
-                <button aria-label="Clear search" onClick={() => setQuery("")}><X size={13} /></button>
+                <button aria-label={t("Clear search")} onClick={() => setQuery("")}><X size={13} /></button>
               ) : <kbd>⌘K</kbd>}
             </label>
             <button className="primary-button" onClick={() => setModalProject(EMPTY_FORM)}>
-              <Plus size={15} /> New project
+              <Plus size={15} /> {t("New project")}
             </button>
           </div>
         </header>
 
-        <section className="project-toolbar" aria-label="Project controls">
+        <section className="project-toolbar" aria-label={t("Project controls")}>
           <div className="project-summary">
-            <span><strong>{visibleProjects.length}</strong> shown</span>
+            <span><strong>{visibleProjects.length}</strong> {t("shown")}</span>
             <span className="summary-separator">/</span>
             <span className={runningCount > 0 ? "summary-running" : ""}>
-              <i />{activeTaskCount} tasks running
+              <i />{activeTaskCount} {t("tasks running")}
             </span>
             <span className="summary-separator">/</span>
             <span className={gitChangesCount > 0 ? "summary-git" : ""}>
-              <GitBranch size={10} />{gitChangesCount} changed
+              <GitBranch size={10} />{gitChangesCount} {t("changed")}
             </span>
             <span className="summary-separator">/</span>
-            <span><Star size={10} />{favoriteCount} pinned</span>
+              <span><Star size={10} />{favoriteCount} {t("Pinned")}</span>
           </div>
           <div className="toolbar-controls">
             {projects.length > 0 && finderTagCount === 0 && isMac() ? (
               <button className="finder-access-button" onClick={() => void grantFinderAccess()}>
-                <span><i /><i /><i /></span> Finder colors
+                <span><i /><i /><i /></span> {t("Finder colors")}
               </button>
             ) : null}
             {sortMode === "manual" ? (
               <span className="reorder-hint" data-enabled={canReorder}>
-                {canReorder ? "Drag projects to reorder" : "Clear filters to reorder"}
+                {canReorder ? t("Drag projects to reorder") : t("Clear filters to reorder")}
               </span>
             ) : null}
-            <div className="view-switcher" role="group" aria-label="Project view">
+            <div className="view-switcher" role="group" aria-label={t("Project view")}>
               <ViewButton
                 active={viewMode === "comfortable"}
                 icon={<Rows3 size={13} />}
-                label="Comfortable view"
+                label={t("Comfortable view")}
                 onClick={() => setViewMode("comfortable")}
               />
               <ViewButton
                 active={viewMode === "compact"}
                 icon={<Grid2X2 size={13} />}
-                label="Compact view"
+                label={t("Compact view")}
                 onClick={() => setViewMode("compact")}
               />
               <ViewButton
                 active={viewMode === "table"}
                 icon={<TableProperties size={13} />}
-                label="Table view"
+                label={t("Table view")}
                 onClick={() => setViewMode("table")}
               />
             </div>
@@ -676,16 +678,16 @@ export default function App() {
               <Tag size={13} />
               <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value as TagFilter)}>
                 {TAG_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{t(option.label)}</option>
                 ))}
               </select>
             </label>
             <label className="select-control">
               <ArrowDownUp size={13} />
               <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)}>
-                <option value="recent">Last opened</option>
-                <option value="manual">Manual order</option>
-                <option value="name">Name</option>
+                <option value="recent">{t("Last opened")}</option>
+                <option value="manual">{t("Manual order")}</option>
+                <option value="name">{t("Name")}</option>
               </select>
             </label>
           </div>
@@ -693,7 +695,7 @@ export default function App() {
 
         <div className="project-scroll-area">
           {loading ? (
-            <div className="loading-state"><span className="loading-cursor">▋</span> reading projects</div>
+            <div className="loading-state"><span className="loading-cursor">▋</span> {t("reading projects")}</div>
           ) : visibleProjects.length > 0 ? (
             viewMode === "table" ? (
               <ProjectTable
@@ -821,7 +823,7 @@ export default function App() {
           project={menuProject}
           position={projectMenu}
           onClose={closeProjectMenu}
-          onCopyPath={() => void copyProjectValue(menuProject.path, "Project path")}
+          onCopyPath={() => void copyProjectValue(menuProject.path, "Copy project path")}
           onTasks={() => setTaskProjectId(menuProject.id)}
           onTools={() => setToolsProjectId(menuProject.id)}
           onOpenFolder={() =>
@@ -894,13 +896,14 @@ function FilterButton({
 }
 
 function EmptyState({ filtered, onAdd, onClear }: { filtered: boolean; onAdd: () => void; onClear: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="empty-state">
       <div className="empty-icon"><Command size={21} /></div>
-      <h2>{filtered ? "No matching projects" : "Your commands, one click away."}</h2>
-      <p>{filtered ? "Try another filter or show all projects." : "Add a project folder. Runbox will detect the usual dev command for you."}</p>
+      <h2>{filtered ? t("No matching projects") : t("Your commands, one click away.")}</h2>
+      <p>{filtered ? t("Try another filter or show all projects.") : t("Add a project folder. Runbox will detect the usual dev command for you.")}</p>
       <button className="secondary-button" onClick={filtered ? onClear : onAdd}>
-        {filtered ? "Clear filters" : <><FolderOpen size={15} /> Choose a folder</>}
+        {filtered ? t("Clear filters") : <><FolderOpen size={15} /> {t("Choose a folder")}</>}
       </button>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   Star,
 } from "lucide-react";
 import { projectActivity } from "../lib/projectMeta";
+import { useI18n } from "../lib/i18n";
 import type { ProjectEndpoint, ProjectView } from "../types";
 import { GitStatusBadge } from "./ProjectCard";
 
@@ -49,16 +50,17 @@ export function ProjectTable({
   onDrop,
   onDragEnd,
 }: Props) {
+  const { t } = useI18n();
   return (
     <div className="project-table-shell">
       <table className="project-table">
         <thead>
           <tr>
-            <th>Project</th>
-            <th>Activity</th>
-            <th>Git</th>
-            <th>Command</th>
-            <th aria-label="Project actions" />
+            <th>{t("Project")}</th>
+            <th>{t("Activity")}</th>
+            <th>{t("Git")}</th>
+            <th>{t("Command")}</th>
+            <th aria-label={t("Project actions")} />
           </tr>
         </thead>
         <tbody>
@@ -88,13 +90,13 @@ export function ProjectTable({
               >
                 <td className="table-project-cell">
                   {canReorder ? (
-                    <span className="table-drag-handle" title="Drag to reorder">
+                    <span className="table-drag-handle" title={t("Drag projects to reorder")}>
                       <GripVertical size={13} />
                     </span>
                   ) : null}
                   <span
                     className="finder-tag-dot"
-                    title={projectAccentTitle(project)}
+                    title={projectAccentTitle(project, t)}
                   />
                   <strong title={project.name}>{project.name}</strong>
                   <button
@@ -102,8 +104,8 @@ export function ProjectTable({
                     data-active={project.favorite}
                     onClick={() => onFavorite(project)}
                     disabled={favoritePendingIds.has(project.id)}
-                    aria-label={project.favorite ? `Unpin ${project.name}` : `Pin ${project.name}`}
-                    title={project.favorite ? "Unpin project" : "Pin project"}
+                    aria-label={project.favorite ? t("Unpin {{name}}", { name: project.name }) : t("Pin {{name}}", { name: project.name })}
+                    title={project.favorite ? t("Unpin project") : t("Pin project")}
                   >
                     <Star size={13} fill={project.favorite ? "currentColor" : "none"} />
                   </button>
@@ -113,9 +115,9 @@ export function ProjectTable({
                     className="table-activity"
                     data-running={running}
                     data-crashed={project.crashedTaskCount > 0}
-                    title={activityTitle(project)}
+                    title={activityTitle(project, t)}
                   >
-                    {projectActivity(project)}
+                    {projectActivity(project, t)}
                   </span>
                 </td>
                 <td>
@@ -147,14 +149,14 @@ export function ProjectTable({
                       ) : (
                         <Play size={11} fill="currentColor" />
                       )}
-                      {pending ? "Working" : running ? "Stop" : "Run"}
+                      {pending ? t("Working") : running ? t("Stop") : t("Run")}
                     </button>
                     {primaryEndpoint ? (
                       <button
                         className="icon-button table-endpoint-button"
                         onClick={() => onOpenEndpoint(project, primaryEndpoint)}
-                        title={`Open ${primaryEndpoint.url} · ${primaryEndpoint.taskName}`}
-                        aria-label={`Open localhost port ${primaryEndpoint.port}`}
+                        title={t("Open {{url}} · {{task}}", { url: primaryEndpoint.url, task: primaryEndpoint.taskName })}
+                        aria-label={t("Open localhost port {{port}}", { port: primaryEndpoint.port })}
                       >
                         <ExternalLink size={13} />
                       </button>
@@ -165,8 +167,8 @@ export function ProjectTable({
                         const rect = event.currentTarget.getBoundingClientRect();
                         onOpenMenu(project, { x: rect.right, y: rect.bottom + 5 });
                       }}
-                      title="More actions"
-                      aria-label={`More actions for ${project.name}`}
+                      title={t("More actions")}
+                      aria-label={t("More actions for {{name}}", { name: project.name })}
                     >
                       <MoreHorizontal size={14} />
                     </button>
@@ -181,18 +183,18 @@ export function ProjectTable({
   );
 }
 
-function activityTitle(project: ProjectView): string {
-  if (!project.startedAt) return "This project has not been started with Runbox yet";
+function activityTitle(project: ProjectView, t: (key: string) => string): string {
+  if (!project.startedAt) return t("This project has not been started with Runbox yet");
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(project.startedAt * 1_000);
 }
 
-function projectAccentTitle(project: ProjectView): string {
-  if (project.finderTagColor) return `${project.finderTagColor} Finder tag`;
-  if (project.crashedTaskCount > 0) return "A project task crashed";
-  if (project.status === "running") return "Project is running";
-  if (project.gitStatus?.dirty) return "Project has uncommitted changes";
-  return "No Finder tag";
+function projectAccentTitle(project: ProjectView, t: (key: string, values?: Record<string, string | number>) => string): string {
+  if (project.finderTagColor) return t("{{color}} Finder tag", { color: project.finderTagColor });
+  if (project.crashedTaskCount > 0) return t("A project task crashed");
+  if (project.status === "running") return t("Project is running");
+  if (project.gitStatus?.dirty) return t("Project has uncommitted changes");
+  return t("No Finder tag");
 }

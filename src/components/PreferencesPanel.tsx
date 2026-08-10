@@ -1,6 +1,7 @@
 import {
   Check,
   Keyboard,
+  Languages,
   Minus,
   MonitorCog,
   Palette,
@@ -21,6 +22,7 @@ import {
   updateUiScale,
   type AppPreferences,
 } from "../lib/preferences";
+import { useI18n } from "../lib/i18n";
 
 type PreferencesSection = "interface" | "appearance";
 
@@ -35,6 +37,7 @@ export function PreferencesPanel({
   onChange,
   onClose,
 }: PreferencesPanelProps) {
+  const { language, t, toggleLanguage } = useI18n();
   const [section, setSection] = useState<PreferencesSection>("interface");
   const scalePercent = Math.round(preferences.scale * 100);
 
@@ -59,22 +62,22 @@ export function PreferencesPanel({
           <header>
             <div className="preferences-mark"><SlidersHorizontal size={15} /></div>
             <div>
-              <h2 id="preferences-title">Preferences</h2>
-              <p>Runbox on this Mac</p>
+              <h2 id="preferences-title">{t("Preferences title")}</h2>
+              <p>{t("Runbox on this Mac")}</p>
             </div>
           </header>
 
-          <nav aria-label="Preference sections">
+          <nav aria-label={t("Preference sections")}>
             <PreferenceNavItem
               icon={<MonitorCog size={15} />}
-              label="Interface"
+              label={t("Interface")}
               section="interface"
               active={section === "interface"}
               onClick={() => setSection("interface")}
             />
             <PreferenceNavItem
               icon={<Palette size={15} />}
-              label="Appearance"
+              label={t("Appearance")}
               section="appearance"
               active={section === "appearance"}
               onClick={() => setSection("appearance")}
@@ -82,11 +85,22 @@ export function PreferencesPanel({
           </nav>
 
           <button
+            className="preferences-language"
+            onClick={toggleLanguage}
+            title={t("Switch language")}
+            aria-label={t("Switch language")}
+          >
+            <Languages size={13} />
+            <span>{t("Language")}</span>
+            <strong>{language === "en" ? t("Chinese") : t("English")}</strong>
+          </button>
+
+          <button
             className="preferences-reset"
             onClick={() => onChange(DEFAULT_PREFERENCES)}
           >
             <RotateCcw size={13} />
-            Restore defaults
+            {t("Restore defaults")}
           </button>
         </aside>
 
@@ -101,7 +115,7 @@ export function PreferencesPanel({
         <button
           className="preferences-close"
           onClick={onClose}
-          aria-label="Close preferences"
+          aria-label={t("Close preferences")}
         >
           <X size={16} />
         </button>
@@ -173,12 +187,13 @@ function InterfacePreferences({
   scalePercent: number;
   onScaleChange: (scale: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <section className="preferences-section">
       <div className="preferences-section-heading">
         <div>
-          <p>INTERFACE</p>
-          <h3>Display size</h3>
+          <p>{t("INTERFACE")}</p>
+          <h3>{t("Display size")}</h3>
         </div>
         <span>{formatUiScale(preferences.scale)}</span>
       </div>
@@ -198,7 +213,7 @@ function InterfacePreferences({
             <button
               onClick={() => onScaleChange(preferences.scale - UI_SCALE_STEP)}
               disabled={preferences.scale <= MIN_UI_SCALE}
-              aria-label="Decrease interface size"
+              aria-label={t("Decrease interface size")}
             >
               <Minus size={15} />
             </button>
@@ -209,17 +224,17 @@ function InterfacePreferences({
               step={UI_SCALE_STEP * 100}
               value={scalePercent}
               onChange={(event) => onScaleChange(Number(event.target.value) / 100)}
-              aria-label="Interface size"
+              aria-label={t("Interface size")}
             />
             <button
               onClick={() => onScaleChange(preferences.scale + UI_SCALE_STEP)}
               disabled={preferences.scale >= MAX_UI_SCALE}
-              aria-label="Increase interface size"
+              aria-label={t("Increase interface size")}
             >
               <Plus size={15} />
             </button>
           </div>
-          <div className="scale-presets" aria-label="Interface size presets">
+          <div className="scale-presets" aria-label={t("Interface size presets")}>
             {UI_SCALE_PRESETS.map((scale) => (
               <button
                 key={scale}
@@ -234,12 +249,11 @@ function InterfacePreferences({
       </div>
 
       <p className="preferences-help">
-        Scales the entire window, including project cards, Git history, diffs, and developer tools.
-        Changes apply immediately.
+        {t("Scales the entire window, including project cards, Git history, diffs, and developer tools. Changes apply immediately.")}
       </p>
       <div className="preferences-shortcuts">
         <Keyboard size={14} />
-        <span>Quick resize</span>
+        <span>{t("Quick resize")}</span>
         <kbd>⌘−</kbd>
         <kbd>⌘0</kbd>
         <kbd>⌘+</kbd>
@@ -255,12 +269,13 @@ function AppearancePreferences({
   preferences: AppPreferences;
   onChange: (preferences: AppPreferences) => void;
 }) {
+  const { t } = useI18n();
   return (
     <section className="preferences-section">
       <div className="preferences-section-heading">
         <div>
-          <p>APPEARANCE</p>
-          <h3>Theme</h3>
+          <p>{t("APPEARANCE")}</p>
+          <h3>{t("Theme")}</h3>
         </div>
       </div>
       <div className="theme-grid">
@@ -279,8 +294,8 @@ function AppearancePreferences({
                 ))}
               </span>
               <span className="theme-copy">
-                <strong>{theme.name}</strong>
-                <small>{theme.detail}</small>
+                <strong>{t(theme.name)}</strong>
+                <small>{t(theme.detail)}</small>
               </span>
               <span className="theme-check" aria-hidden="true">
                 {active ? <Check size={13} strokeWidth={2.5} /> : null}
@@ -292,8 +307,8 @@ function AppearancePreferences({
       <div className="theme-note">
         <Palette size={14} />
         <div>
-          <strong>Complete window themes</strong>
-          <span>Each preset updates the chrome, surfaces, controls, and accent color.</span>
+          <strong>{t("Complete window themes")}</strong>
+          <span>{t("Each preset updates the chrome, surfaces, controls, and accent color.")}</span>
         </div>
       </div>
     </section>
