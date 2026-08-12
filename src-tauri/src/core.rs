@@ -19,7 +19,9 @@ const APP_DIRECTORY: &str = "Runbox";
 const LOG_READ_LIMIT: u64 = 256 * 1024;
 const FINDER_TAG_CACHE_TTL: Duration = Duration::from_secs(15);
 const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(8);
+const LANGUAGE_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const GIT_STATUS_WORKERS: usize = 4;
+const LANGUAGE_WORKERS: usize = 2;
 const COMMIT_DIFF_LIMIT: usize = 96 * 1024;
 const HISTORY_PATCH_LIMIT: usize = 768 * 1024;
 const AI_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
@@ -48,6 +50,12 @@ struct GitStatusCache {
     pending: HashSet<String>,
 }
 
+#[derive(Default)]
+struct LanguageCache {
+    entries: HashMap<String, (Instant, Vec<ProjectLanguage>)>,
+    pending: HashSet<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -57,6 +65,8 @@ pub struct Project {
     pub command: String,
     #[serde(default)]
     pub tasks: Vec<ProjectTask>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub favorite: bool,
     #[serde(default)]
@@ -119,9 +129,19 @@ pub struct ProjectView {
     pub stopped_at: Option<u64>,
     pub finder_tag_color: Option<String>,
     pub git_status: Option<GitStatus>,
+    pub languages: Vec<ProjectLanguage>,
     pub task_count: usize,
     pub running_task_count: usize,
     pub crashed_task_count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectLanguage {
+    pub name: String,
+    pub bytes: u64,
+    pub percentage: f64,
+    pub color: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -145,6 +165,16 @@ pub struct GitWorkspace {
     pub behind: u32,
     pub files: Vec<GitFileChange>,
     pub branches: Vec<String>,
+    pub stashes: Vec<GitStash>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStash {
+    pub reference: String,
+    pub index: u32,
+    pub subject: String,
+    pub created_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -238,6 +268,7 @@ pub struct ProjectDraft {
     pub path: String,
     pub command: String,
     pub tasks: Vec<ProjectTask>,
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -462,6 +493,7 @@ pub fn list_project_views() -> Result<Vec<ProjectView>, String> {
 pub fn upsert_project(mut project: Project) -> Result<Project, String> {
     project.name = project.name.trim().to_string();
     project.command = project.command.trim().to_string();
+    normalize_project_tags(&mut project.tags)?;
     project.path = normalize_path(&project.path)?;
     migrate_project_tasks(&mut project);
     normalize_project_tasks(&mut project)?;
@@ -566,6 +598,7 @@ fn project_view(project: Project) -> Result<ProjectView, String> {
     Ok(ProjectView {
         finder_tag_color: finder_tag_color(&project.path),
         git_status: git_status(&project.path),
+        languages: project_languages(&project.path),
         project,
         status: if running {
             ProcessStatus::Running
@@ -605,7 +638,8 @@ fn migrate_project_tasks(project: &mut Project) -> bool {
 
 fn normalize_project_tasks(project: &mut Project) -> Result<(), String> {
     if project.tasks.is_empty() {
-        return Err("Add at least one project task".to_string());
+        project.command.clear();
+        return Ok(());
     }
 
     let mut ids = HashSet::new();
@@ -684,6 +718,29 @@ fn normalize_project_tasks(project: &mut Project) -> Result<(), String> {
     }
     validate_task_dependency_graph(&project.tasks)?;
     project.command = project.tasks[0].command.clone();
+    Ok(())
+}
+
+fn normalize_project_tags(tags: &mut Vec<String>) -> Result<(), String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+    for tag in tags.drain(..) {
+        let tag = tag.trim().trim_start_matches('#').trim().to_string();
+        if tag.is_empty() {
+            continue;
+        }
+        if tag.chars().count() > 32 {
+            return Err(format!("Project tag “{tag}” is longer than 32 characters"));
+        }
+        let key = tag.to_lowercase();
+        if seen.insert(key) {
+            normalized.push(tag);
+        }
+        if normalized.len() == 12 {
+            break;
+        }
+    }
+    *tags = normalized;
     Ok(())
 }
 
@@ -911,29 +968,22 @@ pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
                 }
             })
             .collect();
-        if tasks.is_empty() {
-            let command = package_script_command(package_manager, "dev");
-            tasks.push(ProjectTask {
-                id: DEFAULT_TASK_ID.to_string(),
-                name: "Dev".to_string(),
-                readiness: task_readiness_for_command(&command),
-                command,
-                auto_start: true,
-                depends_on: Vec::new(),
-            });
-        }
         if !tasks.iter().any(|task| task.auto_start)
             && let Some(primary) = tasks.first_mut()
         {
             primary.auto_start = true;
         }
-        let command = tasks[0].command.clone();
+        let command = tasks
+            .first()
+            .map(|task| task.command.clone())
+            .unwrap_or_default();
 
         return Ok(ProjectDraft {
             name,
             path: normalized,
             command,
             tasks,
+            tags: Vec::new(),
         });
     }
 
@@ -953,19 +1003,24 @@ pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
         ""
     };
 
-    let task = ProjectTask {
-        id: DEFAULT_TASK_ID.to_string(),
-        name: "Dev".to_string(),
-        readiness: task_readiness_for_command(command),
-        command: command.to_string(),
-        auto_start: true,
-        depends_on: Vec::new(),
+    let tasks = if command.is_empty() {
+        Vec::new()
+    } else {
+        vec![ProjectTask {
+            id: DEFAULT_TASK_ID.to_string(),
+            name: "Dev".to_string(),
+            readiness: task_readiness_for_command(command),
+            command: command.to_string(),
+            auto_start: true,
+            depends_on: Vec::new(),
+        }]
     };
     Ok(ProjectDraft {
         name: fallback_name,
         path: normalized,
         command: command.to_string(),
-        tasks: vec![task],
+        tasks,
+        tags: Vec::new(),
     })
 }
 
@@ -1140,10 +1195,8 @@ fn task_start_order_from_tasks(
     tasks: &[ProjectTask],
     target_ids: &[String],
 ) -> Result<Vec<ProjectTask>, String> {
-    let task_by_id: HashMap<&str, &ProjectTask> = tasks
-        .iter()
-        .map(|task| (task.id.as_str(), task))
-        .collect();
+    let task_by_id: HashMap<&str, &ProjectTask> =
+        tasks.iter().map(|task| (task.id.as_str(), task)).collect();
     let mut visiting = HashSet::new();
     let mut visited = HashSet::new();
     let mut order = Vec::new();
@@ -1186,6 +1239,12 @@ fn visit_task_dependency(
 
 pub fn start_project(project_id: &str) -> Result<ProjectView, String> {
     let project = find_project(project_id)?;
+    if project.tasks.is_empty() {
+        return Err(format!(
+            "{} has no automation tasks. Add one in Project settings to run it from Runbox.",
+            project.name
+        ));
+    }
     let mut target_ids: Vec<String> = project
         .tasks
         .iter()
@@ -2134,6 +2193,61 @@ pub fn unstage_git_paths(project_id: &str, paths: &[String]) -> Result<GitWorksp
     read_git_workspace(&project.path)
 }
 
+pub fn create_git_stash(
+    project_id: &str,
+    message: &str,
+    include_untracked: bool,
+) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let workspace = read_git_workspace(&project.path)?;
+    if workspace.files.is_empty() {
+        return Err("There are no local changes to stash".to_string());
+    }
+    if !include_untracked && workspace.files.iter().all(|file| file.status == "??") {
+        return Err(
+            "Only untracked files are present. Include them to create this stash.".to_string(),
+        );
+    }
+    let message = message.trim();
+    let mut args = vec!["stash", "push"];
+    if include_untracked {
+        args.push("--include-untracked");
+    }
+    if !message.is_empty() {
+        args.extend(["-m", message]);
+    }
+    run_git_checked(&project.path, &args)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn apply_git_stash(
+    project_id: &str,
+    stash_reference: &str,
+    pop: bool,
+) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let stash_reference = validate_stash_reference(stash_reference)?;
+    if !read_git_workspace(&project.path)?.files.is_empty() {
+        return Err("Apply a stash only when the working tree is clean".to_string());
+    }
+    let operation = if pop { "pop" } else { "apply" };
+    run_git_checked(
+        &project.path,
+        &["stash", operation, "--index", stash_reference],
+    )?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn drop_git_stash(project_id: &str, stash_reference: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let stash_reference = validate_stash_reference(stash_reference)?;
+    run_git_checked(&project.path, &["stash", "drop", stash_reference])?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
 pub fn commit_git(project_id: &str, message: &str) -> Result<GitWorkspace, String> {
     let project = find_project(project_id)?;
     let message = message.trim();
@@ -2940,6 +3054,225 @@ fn finder_tag_sender() -> &'static mpsc::Sender<String> {
     })
 }
 
+fn project_languages(path: &str) -> Vec<ProjectLanguage> {
+    let (cached_languages, should_refresh) = {
+        let Ok(mut cache) = language_cache().lock() else {
+            return Vec::new();
+        };
+        if let Some((checked_at, languages)) = cache.entries.get(path)
+            && checked_at.elapsed() < LANGUAGE_CACHE_TTL
+        {
+            return languages.clone();
+        }
+        let cached_languages = cache
+            .entries
+            .get(path)
+            .map(|(_, languages)| languages.clone())
+            .unwrap_or_default();
+        let should_refresh = cache.pending.insert(path.to_string());
+        (cached_languages, should_refresh)
+    };
+
+    if should_refresh {
+        let _ = language_sender().send(path.to_string());
+    }
+    cached_languages
+}
+
+fn language_cache() -> &'static Mutex<LanguageCache> {
+    static CACHE: OnceLock<Mutex<LanguageCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(LanguageCache::default()))
+}
+
+fn language_sender() -> &'static mpsc::Sender<String> {
+    static SENDER: OnceLock<mpsc::Sender<String>> = OnceLock::new();
+    SENDER.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<String>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        for _ in 0..LANGUAGE_WORKERS {
+            let receiver = Arc::clone(&receiver);
+            thread::spawn(move || {
+                loop {
+                    let path = match receiver.lock() {
+                        Ok(receiver) => match receiver.recv() {
+                            Ok(path) => path,
+                            Err(_) => break,
+                        },
+                        Err(_) => break,
+                    };
+                    let languages = analyze_project_languages(&path);
+                    if let Ok(mut cache) = language_cache().lock() {
+                        cache
+                            .entries
+                            .insert(path.clone(), (Instant::now(), languages));
+                        cache.pending.remove(&path);
+                    }
+                }
+            });
+        }
+        sender
+    })
+}
+
+fn analyze_project_languages(path: &str) -> Vec<ProjectLanguage> {
+    let root = Path::new(path);
+    let files = git_tracked_files(path).unwrap_or_else(|| {
+        let mut files = Vec::new();
+        collect_source_files(root, root, &mut files, 0);
+        files
+    });
+    let mut totals: HashMap<&'static str, (u64, &'static str)> = HashMap::new();
+
+    for relative in files {
+        let Some((language, color)) = language_for_path(&relative) else {
+            continue;
+        };
+        let Ok(metadata) = fs::metadata(root.join(&relative)) else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.len() == 0 {
+            continue;
+        }
+        let entry = totals.entry(language).or_insert((0, color));
+        entry.0 = entry.0.saturating_add(metadata.len());
+    }
+
+    let total_bytes = totals
+        .values()
+        .fold(0_u64, |total, (bytes, _)| total.saturating_add(*bytes));
+    if total_bytes == 0 {
+        return Vec::new();
+    }
+    let mut languages = totals
+        .into_iter()
+        .map(|(name, (bytes, color))| ProjectLanguage {
+            name: name.to_string(),
+            bytes,
+            percentage: ((bytes as f64 / total_bytes as f64) * 1_000.0).round() / 10.0,
+            color: color.to_string(),
+        })
+        .collect::<Vec<_>>();
+    languages.sort_by(|left, right| {
+        right
+            .bytes
+            .cmp(&left.bytes)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    languages
+}
+
+fn git_tracked_files(path: &str) -> Option<Vec<PathBuf>> {
+    let output = run_git(path, &["ls-files", "-z"]).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(
+        output
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .map(|path| PathBuf::from(String::from_utf8_lossy(path).as_ref()))
+            .collect(),
+    )
+}
+
+fn collect_source_files(root: &Path, directory: &Path, files: &mut Vec<PathBuf>, depth: usize) {
+    if depth > 20 || files.len() >= 50_000 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if files.len() >= 50_000 {
+            break;
+        }
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            let name = entry.file_name();
+            if ignored_source_directory(&name.to_string_lossy()) {
+                continue;
+            }
+            collect_source_files(root, &path, files, depth + 1);
+        } else if file_type.is_file()
+            && let Ok(relative) = path.strip_prefix(root)
+        {
+            files.push(relative.to_path_buf());
+        }
+    }
+}
+
+fn ignored_source_directory(name: &str) -> bool {
+    matches!(
+        name,
+        ".git"
+            | ".next"
+            | ".nuxt"
+            | ".svelte-kit"
+            | ".venv"
+            | "Library"
+            | "Logs"
+            | "Temp"
+            | "UserSettings"
+            | "bin"
+            | "build"
+            | "coverage"
+            | "dist"
+            | "node_modules"
+            | "obj"
+            | "target"
+            | "vendor"
+    )
+}
+
+fn language_for_path(path: &Path) -> Option<(&'static str, &'static str)> {
+    let file_name = path.file_name()?.to_str()?;
+    match file_name {
+        "CMakeLists.txt" => return Some(("CMake", "#DA3434")),
+        "Dockerfile" => return Some(("Dockerfile", "#384D54")),
+        "Makefile" | "GNUmakefile" => return Some(("Makefile", "#427819")),
+        _ => {}
+    }
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    match extension.as_str() {
+        "c" => Some(("C", "#555555")),
+        "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => Some(("C++", "#F34B7D")),
+        "cs" => Some(("C#", "#178600")),
+        "css" | "less" | "sass" | "scss" => Some(("CSS", "#663399")),
+        "dart" => Some(("Dart", "#00B4AB")),
+        "gd" => Some(("GDScript", "#355570")),
+        "go" => Some(("Go", "#00ADD8")),
+        "htm" | "html" => Some(("HTML", "#E34C26")),
+        "java" => Some(("Java", "#B07219")),
+        "js" | "jsx" | "mjs" | "cjs" => Some(("JavaScript", "#F1E05A")),
+        "kt" | "kts" => Some(("Kotlin", "#A97BFF")),
+        "lua" => Some(("Lua", "#000080")),
+        "m" | "mm" => Some(("Objective-C", "#438EFF")),
+        "php" => Some(("PHP", "#4F5D95")),
+        "ps1" | "psm1" => Some(("PowerShell", "#012456")),
+        "py" | "pyi" => Some(("Python", "#3572A5")),
+        "r" => Some(("R", "#198CE7")),
+        "rb" => Some(("Ruby", "#701516")),
+        "rs" => Some(("Rust", "#DEA584")),
+        "shader" => Some(("ShaderLab", "#222C37")),
+        "cg" | "cginc" | "compute" | "hlsl" => Some(("HLSL", "#AACE60")),
+        "sh" | "bash" | "zsh" | "fish" => Some(("Shell", "#89E051")),
+        "sql" => Some(("SQL", "#E38C00")),
+        "svelte" => Some(("Svelte", "#FF3E00")),
+        "swift" => Some(("Swift", "#F05138")),
+        "tex" | "sty" => Some(("TeX", "#3D6117")),
+        "ts" | "tsx" => Some(("TypeScript", "#3178C6")),
+        "vue" => Some(("Vue", "#41B883")),
+        _ => None,
+    }
+}
+
 fn git_status(path: &str) -> Option<GitStatus> {
     let (cached_status, should_refresh) = {
         let mut cache = git_status_cache().lock().ok()?;
@@ -2974,18 +3307,20 @@ fn git_status_sender() -> &'static mpsc::Sender<String> {
         let receiver = Arc::new(Mutex::new(receiver));
         for _ in 0..GIT_STATUS_WORKERS {
             let receiver = Arc::clone(&receiver);
-            thread::spawn(move || loop {
-                let path = match receiver.lock() {
-                    Ok(receiver) => match receiver.recv() {
-                        Ok(path) => path,
+            thread::spawn(move || {
+                loop {
+                    let path = match receiver.lock() {
+                        Ok(receiver) => match receiver.recv() {
+                            Ok(path) => path,
+                            Err(_) => break,
+                        },
                         Err(_) => break,
-                    },
-                    Err(_) => break,
-                };
-                let status = read_git_status(&path);
-                if let Ok(mut cache) = git_status_cache().lock() {
-                    cache.entries.insert(path.clone(), (Instant::now(), status));
-                    cache.pending.remove(&path);
+                    };
+                    let status = read_git_status(&path);
+                    if let Ok(mut cache) = git_status_cache().lock() {
+                        cache.entries.insert(path.clone(), (Instant::now(), status));
+                        cache.pending.remove(&path);
+                    }
                 }
             });
         }
@@ -3360,6 +3695,7 @@ fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
                 .to_string()
         })
         .filter(|value| !value.is_empty());
+    let stashes = read_git_stashes(path);
 
     Ok(GitWorkspace {
         branch,
@@ -3369,7 +3705,55 @@ fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
         behind,
         files,
         branches,
+        stashes,
     })
+}
+
+fn read_git_stashes(path: &str) -> Vec<GitStash> {
+    let Ok(output) = run_git(path, &["stash", "list", "--format=%gd%x1f%gs%x1f%cI%x1e"]) else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .split('\x1e')
+        .filter_map(|record| {
+            let record = record.trim();
+            if record.is_empty() {
+                return None;
+            }
+            let mut fields = record.splitn(3, '\x1f');
+            let reference = fields.next()?.trim().to_string();
+            let subject = fields.next()?.trim().to_string();
+            let created_at = fields.next()?.trim().to_string();
+            let index = reference
+                .strip_prefix("stash@{")?
+                .strip_suffix('}')?
+                .parse::<u32>()
+                .ok()?;
+            Some(GitStash {
+                reference,
+                index,
+                subject,
+                created_at,
+            })
+        })
+        .collect()
+}
+
+fn validate_stash_reference(reference: &str) -> Result<&str, String> {
+    let reference = reference.trim();
+    let Some(index) = reference
+        .strip_prefix("stash@{")
+        .and_then(|value| value.strip_suffix('}'))
+    else {
+        return Err("Invalid stash reference".to_string());
+    };
+    if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("Invalid stash reference".to_string());
+    }
+    Ok(reference)
 }
 
 fn parse_git_file_record(record: &str, fields: usize) -> Option<GitFileChange> {
@@ -4045,10 +4429,11 @@ fn display_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        commit_message_prompt, migrate_project_tasks, normalize_git_remote, parse_git_file_record,
-        parse_http_target, read_git_commit_detail, read_git_history, read_git_workspace,
+        analyze_project_languages, commit_message_prompt, migrate_project_tasks,
+        normalize_git_remote, normalize_project_tasks, parse_git_file_record, parse_http_target,
+        read_git_commit_detail, read_git_history, read_git_stashes, read_git_workspace,
         revert_git_commit_in_path, run_git_checked, sanitize_commit_message, task_display_name,
-        task_readiness_for_command, task_start_order, validate_git_path,
+        task_readiness_for_command, task_start_order, validate_git_path, validate_stash_reference,
         validate_task_dependency_graph, validate_trash_target,
     };
     use std::{fs, path::Path};
@@ -4074,6 +4459,68 @@ mod tests {
         assert_eq!(project.tasks[0].name, "Dev");
         assert_eq!(project.tasks[0].command, "pnpm run dev");
         assert!(project.tasks[0].auto_start);
+    }
+
+    #[test]
+    fn accepts_projects_without_automation_tasks() {
+        let mut project: super::Project = serde_json::from_str(
+            r#"{
+                "id": "unity-project",
+                "name": "Unity Game",
+                "path": "/tmp/unity-game",
+                "command": "",
+                "tasks": [],
+                "tags": ["Unity", "C#"],
+                "favorite": false,
+                "sortOrder": 100
+            }"#,
+        )
+        .expect("project without tasks");
+        normalize_project_tasks(&mut project).expect("optional tasks");
+        assert!(project.tasks.is_empty());
+        assert!(project.command.is_empty());
+    }
+
+    #[test]
+    fn summarizes_source_languages_by_file_size() {
+        let sandbox = std::env::temp_dir().join(format!("runbox-language-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(sandbox.join("Assets/Scripts")).expect("source directory");
+        fs::write(sandbox.join("Assets/Scripts/Player.cs"), "123456").expect("C# source");
+        fs::write(sandbox.join("Assets/Surface.shader"), "12").expect("shader source");
+
+        let languages = analyze_project_languages(&sandbox.to_string_lossy());
+        assert_eq!(languages.len(), 2);
+        assert_eq!(languages[0].name, "C#");
+        assert_eq!(languages[0].bytes, 6);
+        assert_eq!(languages[0].percentage, 75.0);
+        assert_eq!(languages[1].name, "ShaderLab");
+
+        fs::remove_dir_all(sandbox).expect("remove language sandbox");
+    }
+
+    #[test]
+    fn reads_and_validates_git_stashes() {
+        let sandbox = std::env::temp_dir().join(format!("runbox-stash-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&sandbox).expect("stash sandbox");
+        let path = sandbox.to_string_lossy();
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(sandbox.join("notes.txt"), "first\n").expect("initial contents");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+        fs::write(sandbox.join("notes.txt"), "first\nsecond\n").expect("changed contents");
+        run_git_checked(&path, &["stash", "push", "-m", "context switch"]).expect("create stash");
+
+        let stashes = read_git_stashes(&path);
+        assert_eq!(stashes.len(), 1);
+        assert_eq!(stashes[0].reference, "stash@{0}");
+        assert!(stashes[0].subject.contains("context switch"));
+        assert_eq!(validate_stash_reference("stash@{0}"), Ok("stash@{0}"));
+        assert!(validate_stash_reference("HEAD").is_err());
+
+        fs::remove_dir_all(sandbox).expect("remove stash sandbox");
     }
 
     #[test]

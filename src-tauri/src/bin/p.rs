@@ -167,7 +167,11 @@ fn list() -> Result<(), String> {
             truncate(&project.project.name, 24),
             status,
             git_summary(git_status.as_ref()),
-            project.project.command.dimmed()
+            if project.project.command.is_empty() {
+                "—".dimmed().to_string()
+            } else {
+                project.project.command.dimmed().to_string()
+            }
         );
     }
     Ok(())
@@ -403,10 +407,19 @@ fn add(path: &str, name: Option<String>, command: Option<String>) -> Result<(), 
         .iter()
         .any(|project| project.path == draft.path);
     let mut tasks = draft.tasks;
-    if let Some(command) = command.as_ref()
-        && let Some(primary) = tasks.first_mut()
-    {
-        primary.command = command.clone();
+    if let Some(command) = command.as_ref() {
+        if let Some(primary) = tasks.first_mut() {
+            primary.command = command.clone();
+        } else if !command.trim().is_empty() {
+            tasks.push(ProjectTask {
+                id: "default".to_string(),
+                name: "Dev".to_string(),
+                command: command.clone(),
+                auto_start: true,
+                depends_on: Vec::new(),
+                readiness: Default::default(),
+            });
+        }
     }
     let project = core::upsert_project(Project {
         id: String::new(),
@@ -414,12 +427,17 @@ fn add(path: &str, name: Option<String>, command: Option<String>) -> Result<(), 
         path: draft.path,
         command: command.unwrap_or(draft.command),
         tasks,
+        tags: draft.tags,
         favorite: false,
         sort_order: 0,
     })?;
     let action = if updating { "updated" } else { "added" };
     println!("{} {} {action}", "+".green().bold(), project.name.bold());
-    println!("  {} {}", "$".green(), project.command);
+    if project.command.is_empty() {
+        println!("  {}", "no automation tasks".dimmed());
+    } else {
+        println!("  {} {}", "$".green(), project.command);
+    }
     Ok(())
 }
 

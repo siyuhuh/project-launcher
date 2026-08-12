@@ -8,7 +8,10 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  Tag,
+  Trash2,
   X,
+  ZapOff,
 } from "lucide-react";
 import { detectProject } from "../lib/backend";
 import { useI18n } from "../lib/i18n";
@@ -23,7 +26,8 @@ interface Props {
 
 export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Props) {
   const { t } = useI18n();
-  const [form, setForm] = useState(() => withProjectTasks(project));
+  const [form, setForm] = useState(() => ({ ...project, tags: [...project.tags] }));
+  const [tagDraft, setTagDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [detectingTasks, setDetectingTasks] = useState(false);
   const [taskDetectionError, setTaskDetectionError] = useState<string | null>(null);
@@ -34,7 +38,7 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
     if (!path) return;
     try {
       const detected = await detectProject(path);
-      setForm((current) => ({ ...current, ...detected }));
+      setForm((current) => ({ ...current, ...detected, tags: current.tags }));
       setTaskDetectionError(null);
     } catch {
       setForm((current) => ({ ...current, path }));
@@ -63,7 +67,11 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
     event.preventDefault();
     setSaving(true);
     try {
-      await onSave({ ...form, command: form.tasks[0]?.command ?? "" });
+      await onSave({
+        ...form,
+        command: form.tasks[0]?.command ?? "",
+        tags: mergeTags(form.tags, tagDraft),
+      });
     } finally {
       setSaving(false);
     }
@@ -89,7 +97,7 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
         ...current.tasks,
         {
           id: crypto.randomUUID(),
-          name: `Task ${current.tasks.length + 1}`,
+          name: current.tasks.length === 0 ? "Dev" : `Task ${current.tasks.length + 1}`,
           command: "",
           autoStart: false,
           dependsOn: [],
@@ -101,7 +109,6 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
 
   function removeTask(index: number) {
     setForm((current) => {
-      if (current.tasks.length === 1) return current;
       const removedTaskId = current.tasks[index]?.id;
       const tasks = current.tasks.filter((_, taskIndex) => taskIndex !== index);
       return {
@@ -113,6 +120,32 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
         command: tasks[0]?.command ?? "",
       };
     });
+  }
+
+  function addTag(value = tagDraft) {
+    const additions = value
+      .split(",")
+      .map((tag) => tag.trim().replace(/^#+/, ""))
+      .filter(Boolean);
+    if (additions.length === 0) return;
+    setForm((current) => {
+      const tags = [...current.tags];
+      for (const tag of additions) {
+        if (tags.length >= 12) break;
+        if (!tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())) {
+          tags.push(tag.slice(0, 32));
+        }
+      }
+      return { ...current, tags };
+    });
+    setTagDraft("");
+  }
+
+  function removeTag(tag: string) {
+    setForm((current) => ({
+      ...current,
+      tags: current.tags.filter((candidate) => candidate !== tag),
+    }));
   }
 
   function toggleDependency(index: number, dependencyId: string) {
@@ -168,6 +201,54 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
               </button>
             </span>
           </label>
+          <section className="project-tag-editor">
+            <header>
+              <div>
+                <strong><Tag size={12} /> {t("Project tags")}</strong>
+                <span>{t("Add searchable labels such as Unity, C#, client, or game.")}</span>
+              </div>
+              <small>{form.tags.length}/12</small>
+            </header>
+            {form.tags.length > 0 ? (
+              <div className="project-tag-list">
+                {form.tags.map((tag) => (
+                  <span key={tag}>
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeTag(tag)}
+                      aria-label={t("Remove tag {{tag}}", { tag })}
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <div className="project-tag-input">
+              <input
+                value={tagDraft}
+                onChange={(event) => setTagDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === ",") {
+                    event.preventDefault();
+                    addTag();
+                  }
+                }}
+                onBlur={() => addTag()}
+                placeholder={t("Type a tag and press Enter")}
+                maxLength={96}
+                disabled={form.tags.length >= 12}
+              />
+              <button
+                type="button"
+                onClick={() => addTag()}
+                disabled={!tagDraft.trim() || form.tags.length >= 12}
+              >
+                <Plus size={12} /> {t("Add")}
+              </button>
+            </div>
+          </section>
           <section className="project-task-editor">
             <header>
               <div>
@@ -192,6 +273,18 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
               <p className="project-task-detection-error">{taskDetectionError}</p>
             ) : null}
             <div className="project-task-edit-list">
+              {form.tasks.length === 0 ? (
+                <div className="project-task-empty">
+                  <ZapOff size={18} />
+                  <div>
+                    <strong>{t("No automation tasks")}</strong>
+                    <span>{t("That is fine for Unity and other editor-driven projects. You can still use tags, Git, folders, terminals, and code language stats.")}</span>
+                  </div>
+                  <button type="button" onClick={addTask}>
+                    <Plus size={12} /> {t("Add task")}
+                  </button>
+                </div>
+              ) : null}
               {form.tasks.map((task, index) => (
                 <article className="project-task-edit-row" key={task.id}>
                   <GripVertical size={13} aria-hidden="true" />
@@ -321,17 +414,18 @@ export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Prop
                     className="task-remove-button"
                     type="button"
                     onClick={() => removeTask(index)}
-                    disabled={form.tasks.length === 1}
                     aria-label={t("Remove {{name}}", { name: task.name || t("task") })}
                   >
-                    <X size={13} />
+                    {form.tasks.length === 1 ? <Trash2 size={12} /> : <X size={13} />}
                   </button>
                 </article>
               ))}
             </div>
           </section>
           <p className="form-hint">
-            {t("Commands use your login shell, so pnpm, NVM and other Terminal tools remain available. The first task remains compatible with the existing `p project` command.")}
+            {form.tasks.length > 0
+              ? t("Commands use your login shell, so pnpm, NVM and other Terminal tools remain available. The first task remains compatible with the existing `p project` command.")
+              : t("Automation is optional. This project will stay available for Git, terminal, folder, tags, and code insights.")}
           </p>
           <footer className="modal-footer">
             {onRequestDelete ? (
@@ -388,26 +482,20 @@ function readinessPlaceholder(
   return t("ready in");
 }
 
-function withProjectTasks(project: ProjectForm): ProjectForm {
-  if (project.tasks.length > 0) return project;
-  return {
-    ...project,
-    tasks: [
-      {
-        id: "default",
-        name: "Dev",
-        command: project.command,
-        autoStart: true,
-        dependsOn: [],
-        readiness: { kind: "process", value: "", timeoutSeconds: 30 },
-      },
-    ],
-  };
-}
-
 function submitLabel(saving: boolean, editing: boolean, t: (key: string) => string): string {
   if (saving) return t("Saving");
   return editing ? t("Save changes") : t("Add project");
+}
+
+function mergeTags(current: string[], draft: string): string[] {
+  const tags = [...current];
+  for (const tag of draft.split(",").map((value) => value.trim().replace(/^#+/, "")).filter(Boolean)) {
+    if (tags.length >= 12) break;
+    if (!tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())) {
+      tags.push(tag.slice(0, 32));
+    }
+  }
+  return tags;
 }
 
 function errorMessage(error: unknown): string {

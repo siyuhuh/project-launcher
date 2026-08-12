@@ -17,6 +17,7 @@ import {
 import { projectActivity } from "../lib/projectMeta";
 import { useI18n } from "../lib/i18n";
 import type { GitStatus, ProjectEndpoint, ProjectView } from "../types";
+import { ProjectCodeSummary, ProjectTags } from "./ProjectCodeSummary";
 
 interface Props {
   project: ProjectView;
@@ -65,6 +66,7 @@ export function ProjectCard({
 }: Props) {
   const { t } = useI18n();
   const running = project.status === "running";
+  const hasTasks = project.taskCount > 0;
 
   return (
     <article
@@ -144,15 +146,29 @@ export function ProjectCard({
       </div>
 
       <div className="card-actions">
-        <button className="run-button" data-running={running} onClick={onToggle} disabled={pending}>
-          <ActionIcon pending={pending} running={running} />
-          {actionLabel(pending, running, t)}
+        <button
+          className="run-button"
+          data-running={running}
+          data-empty={!hasTasks}
+          onClick={onToggle}
+          disabled={pending || !hasTasks}
+          title={!hasTasks ? t("No automation tasks configured") : undefined}
+        >
+          {hasTasks ? <ActionIcon pending={pending} running={running} /> : null}
+          {hasTasks ? actionLabel(pending, running, t) : t("No tasks")}
         </button>
-        <div className="command-line" title={project.command}>
-          <span>$</span><code>{project.command}</code>
+        <div className="command-line" data-empty={!hasTasks} title={project.command || t("No automation configured")}>
+          {hasTasks ? <span>$</span> : null}<code>{project.command || t("No automation")}</code>
           {project.taskCount > 1 ? <em>{t("{{count}} tasks", { count: project.taskCount })}</em> : null}
         </div>
       </div>
+
+      {project.tags.length > 0 || project.languages.length > 0 ? (
+        <div className="project-classification">
+          <ProjectTags tags={project.tags} />
+          <ProjectCodeSummary languages={project.languages} />
+        </div>
+      ) : null}
 
       <div className="card-footer">
         {endpoints.length > 0 ? (
@@ -182,6 +198,7 @@ export function ProjectCard({
           <button
             className="icon-button card-quick-action"
             onClick={onLogs}
+            disabled={!hasTasks}
             title={t("Tasks and health")}
             aria-label={t("Open tasks and health for {{name}}", { name: project.name })}
           >
@@ -282,6 +299,7 @@ function actionLabel(pending: boolean, running: boolean, t: (key: string) => str
 }
 
 function activityTitle(project: ProjectView, t: (key: string) => string): string {
+  if (project.taskCount === 0) return t("No automation tasks configured");
   if (!project.startedAt) return t("This project has not been started with Runbox yet");
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",

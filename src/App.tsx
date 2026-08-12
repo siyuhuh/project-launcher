@@ -57,7 +57,7 @@ import {
   stopProject,
   trashProjectDirectory,
 } from "./lib/backend";
-import { commandTag, type CommandTag } from "./lib/projectMeta";
+import { commandTag } from "./lib/projectMeta";
 import {
   applyPreferences,
   loadPreferences,
@@ -76,7 +76,7 @@ import "./App.css";
 
 type Filter = "all" | "favorites" | "running" | "stopped" | "gitChanges";
 type SortMode = "manual" | "recent" | "name";
-type TagFilter = "all" | CommandTag;
+type TagFilter = string;
 type ViewMode = "comfortable" | "compact" | "table";
 type Toast = { id: number; message: string; tone: "success" | "error" };
 type ProjectMenuState = { projectId: string; x: number; y: number };
@@ -86,30 +86,11 @@ const EMPTY_FORM: ProjectForm = {
   name: "",
   path: "",
   command: "",
-  tasks: [
-    {
-      id: "default",
-      name: "Dev",
-      command: "",
-      autoStart: true,
-      dependsOn: [],
-      readiness: { kind: "process", value: "", timeoutSeconds: 30 },
-    },
-  ],
+  tasks: [],
+  tags: [],
   favorite: false,
   sortOrder: 0,
 };
-
-const TAG_OPTIONS: Array<{ value: TagFilter; label: string }> = [
-  { value: "all", label: "All tools" },
-  { value: "pnpm", label: "pnpm" },
-  { value: "npm", label: "npm" },
-  { value: "bun", label: "Bun" },
-  { value: "docker", label: "Docker" },
-  { value: "rust", label: "Rust" },
-  { value: "python", label: "Python" },
-  { value: "other", label: "Other" },
-];
 
 export default function App() {
   const { t } = useI18n();
@@ -283,17 +264,39 @@ export default function App() {
     () => commonDirectory(projects.map((project) => project.path)),
     [projects],
   );
+  const tagOptions = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const project of projects) {
+      for (const label of projectLabels(project)) {
+        const key = label.toLowerCase();
+        if (!labels.has(key)) labels.set(key, label);
+      }
+    }
+    return [
+      { value: "all", label: t("All tags") },
+      ...[...labels.entries()]
+        .sort((left, right) => left[1].localeCompare(right[1]))
+        .map(([value, label]) => ({ value: `tag:${value}`, label })),
+    ];
+  }, [projects, t]);
 
   const visibleProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const filtered = projects.filter((project) => {
       if (!matchesFilter(project, filter)) return false;
-      if (tagFilter !== "all" && commandTag(project.command) !== tagFilter) return false;
+      if (
+        tagFilter !== "all" &&
+        !projectLabels(project).some(
+          (label) => `tag:${label.toLowerCase()}` === tagFilter,
+        )
+      ) return false;
       if (!normalizedQuery) return true;
       return [
         project.name,
         project.path,
         project.command,
+        ...project.tags,
+        ...project.languages.map((language) => language.name),
         ...project.tasks.flatMap((task) => [task.name, task.command]),
       ].some((value) =>
         value.toLowerCase().includes(normalizedQuery),
@@ -374,6 +377,11 @@ export default function App() {
   }
 
   async function handleToggle(project: ProjectView) {
+    if (project.taskCount === 0) {
+      setModalProject(project);
+      showToast(t("Add an automation task before running this project"), "error");
+      return;
+    }
     const running = project.status === "running";
     await withPending(project.id, async () => {
       if (running) {
@@ -701,8 +709,8 @@ export default function App() {
             <label className="select-control">
               <Tag size={13} />
               <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value as TagFilter)}>
-                {TAG_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{t(option.label)}</option>
+                {tagOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </label>
@@ -954,6 +962,24 @@ function matchesFilter(project: ProjectView, filter: Filter): boolean {
   if (filter === "stopped") return project.status === "stopped";
   if (filter === "gitChanges") return project.gitStatus?.dirty ?? false;
   return true;
+}
+
+function projectLabels(project: ProjectView): string[] {
+  const tool = commandTag(project.command);
+  const toolLabel: Record<ReturnType<typeof commandTag>, string | null> = {
+    pnpm: "pnpm",
+    npm: "npm",
+    bun: "Bun",
+    docker: "Docker",
+    rust: "Rust",
+    python: "Python",
+    other: null,
+  };
+  return [
+    ...project.tags,
+    ...project.languages.map((language) => language.name),
+    ...(toolLabel[tool] ? [toolLabel[tool]] : []),
+  ];
 }
 
 function sortProjects(projects: ProjectView[], sortMode: SortMode): ProjectView[] {

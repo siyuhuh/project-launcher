@@ -143,7 +143,12 @@ export function ProjectContextMenu({
       <MenuItem icon={Copy} label={t("Copy project path")} onClick={() => invoke(onCopyPath)} />
 
       <MenuSeparator />
-      <MenuItem icon={Activity} label={t("Tasks and health")} onClick={() => invoke(onTasks)} />
+      <MenuItem
+        icon={Activity}
+        label={project.taskCount > 0 ? t("Tasks and health") : t("No automation tasks")}
+        onClick={() => invoke(onTasks)}
+        disabled={project.taskCount === 0}
+      />
       <MenuItem icon={Wrench} label={t("Developer tools")} onClick={() => invoke(onTools)} />
 
       <MenuSeparator />
@@ -164,14 +169,16 @@ function MenuItem({
   label,
   onClick,
   danger = false,
+  disabled = false,
 }: {
   icon: LucideIcon;
   label: ReactNode;
   onClick: () => void;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <button type="button" role="menuitem" data-danger={danger} onClick={onClick}>
+    <button type="button" role="menuitem" data-danger={danger} onClick={onClick} disabled={disabled}>
       <Icon size={14} />
       <span>{label}</span>
     </button>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Archive,
   ArrowDownToLine,
   ArrowUpFromLine,
   Check,
@@ -16,11 +17,15 @@ import {
   RefreshCw,
   RotateCcw,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import {
+  applyStash,
   createBranch,
   createCommit,
+  createStash,
+  dropStash,
   fetchRepository,
   generateCommitMessage,
   getGitCommitDetail,
@@ -42,12 +47,13 @@ import type {
   GitCommit,
   GitCommitDetail,
   GitFileChange,
+  GitStash,
   GitWorkspace,
   ProjectView,
 } from "../types";
 
 type Selection = { path: string; staged: boolean };
-type GitView = "changes" | "history";
+type GitView = "changes" | "history" | "stashes";
 const COMMIT_PROVIDER_STORAGE_KEY = "runbox.commitProvider";
 const LOCAL_AI_PROMPT_STORAGE_KEY = "runbox.localAiPromptDismissed";
 const HISTORY_PAGE_SIZE = 30;
@@ -80,6 +86,9 @@ export function GitPanel({
     () => window.localStorage.getItem(LOCAL_AI_PROMPT_STORAGE_KEY) !== "true",
   );
   const [branchDraft, setBranchDraft] = useState("");
+  const [stashMessage, setStashMessage] = useState("");
+  const [stashIncludeUntracked, setStashIncludeUntracked] = useState(true);
+  const [dropConfirmReference, setDropConfirmReference] = useState<string | null>(null);
   const [view, setView] = useState<GitView>("changes");
   const [history, setHistory] = useState<GitCommit[]>([]);
   const [historyPath, setHistoryPath] = useState<string | null>(null);
@@ -227,6 +236,16 @@ export function GitPanel({
   }, [selection, workspace]);
 
   useEffect(() => {
+    if (
+      dropConfirmReference &&
+      workspace &&
+      !workspace.stashes.some((stash) => stash.reference === dropConfirmReference)
+    ) {
+      setDropConfirmReference(null);
+    }
+  }, [dropConfirmReference, workspace]);
+
+  useEffect(() => {
     if (!selection) {
       setDiff("");
       return;
@@ -286,6 +305,7 @@ export function GitPanel({
       onNotify(successMessage, "success");
     } catch (error) {
       onNotify(errorMessage(error), "error");
+      void refresh();
     } finally {
       setBusy(null);
     }
@@ -333,6 +353,39 @@ export function GitPanel({
       t("Created {{branch}}", { branch }),
     );
     setBranchDraft("");
+  }
+
+  async function handleCreateStash() {
+    if (!workspace?.files.length || busy) return;
+    await runOperation(
+      "stash-create",
+      () => createStash(project.id, stashMessage.trim(), stashIncludeUntracked),
+      t("Stashed local changes"),
+    );
+    setStashMessage("");
+  }
+
+  async function handleApplyStash(stash: GitStash, pop: boolean) {
+    if (busy || workspace?.files.length) return;
+    await runOperation(
+      pop ? "stash-pop" : "stash-apply",
+      () => applyStash(project.id, stash.reference, pop),
+      pop ? t("Popped {{stash}}", { stash: stash.reference }) : t("Applied {{stash}}", { stash: stash.reference }),
+    );
+  }
+
+  async function handleDropStash(stash: GitStash) {
+    if (busy) return;
+    if (dropConfirmReference !== stash.reference) {
+      setDropConfirmReference(stash.reference);
+      return;
+    }
+    await runOperation(
+      "stash-drop",
+      () => dropStash(project.id, stash.reference),
+      t("Dropped {{stash}}", { stash: stash.reference }),
+    );
+    setDropConfirmReference(null);
   }
 
   async function handleRevert() {
@@ -447,6 +500,15 @@ export function GitPanel({
               onClick={() => setView("history")}
             >
               <History size={12} /> {t("History")}
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === "stashes"}
+              data-active={view === "stashes"}
+              onClick={() => setView("stashes")}
+            >
+              <Archive size={12} /> {t("Stashes")}
+              {workspace?.stashes.length ? <span>{workspace.stashes.length}</span> : null}
             </button>
           </div>
 
@@ -703,7 +765,7 @@ export function GitPanel({
                 <DiffView contents={diff} loading={diffLoading} hasSelection={Boolean(selection)} />
               </main>
             </>
-          ) : (
+          ) : view === "history" ? (
             <>
               <GitHistoryTimeline
                 commits={history}
@@ -730,10 +792,163 @@ export function GitPanel({
                 onConfirmRevert={() => void handleRevert()}
               />
             </>
+          ) : (
+            <GitStashPane
+              stashes={workspace?.stashes ?? []}
+              changedFileCount={workspace?.files.length ?? 0}
+              message={stashMessage}
+              includeUntracked={stashIncludeUntracked}
+              loading={loading}
+              busy={busy}
+              dropConfirmReference={dropConfirmReference}
+              onMessageChange={setStashMessage}
+              onIncludeUntrackedChange={setStashIncludeUntracked}
+              onCreate={() => void handleCreateStash()}
+              onApply={(stash) => void handleApplyStash(stash, false)}
+              onPop={(stash) => void handleApplyStash(stash, true)}
+              onDrop={(stash) => void handleDropStash(stash)}
+              onCancelDrop={() => setDropConfirmReference(null)}
+            />
           )}
         </div>
       </section>
     </div>
+  );
+}
+
+function GitStashPane({
+  stashes,
+  changedFileCount,
+  message,
+  includeUntracked,
+  loading,
+  busy,
+  dropConfirmReference,
+  onMessageChange,
+  onIncludeUntrackedChange,
+  onCreate,
+  onApply,
+  onPop,
+  onDrop,
+  onCancelDrop,
+}: {
+  stashes: GitStash[];
+  changedFileCount: number;
+  message: string;
+  includeUntracked: boolean;
+  loading: boolean;
+  busy: string | null;
+  dropConfirmReference: string | null;
+  onMessageChange: (message: string) => void;
+  onIncludeUntrackedChange: (include: boolean) => void;
+  onCreate: () => void;
+  onApply: (stash: GitStash) => void;
+  onPop: (stash: GitStash) => void;
+  onDrop: (stash: GitStash) => void;
+  onCancelDrop: () => void;
+}) {
+  const { t } = useI18n();
+  const dirty = changedFileCount > 0;
+  return (
+    <main className="git-stash-pane">
+      <header className="git-stash-header">
+        <div>
+          <span><Archive size={12} /> {t("STASHES")}</span>
+          <h3>{t("Set changes aside without committing")}</h3>
+          <p>{t("Save the current working tree, switch context, and restore it later.")}</p>
+        </div>
+        <form
+          className="git-stash-create"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onCreate();
+          }}
+        >
+          <input
+            value={message}
+            onChange={(event) => onMessageChange(event.target.value)}
+            placeholder={t("Optional stash message")}
+            disabled={Boolean(busy)}
+          />
+          <label>
+            <input
+              type="checkbox"
+              checked={includeUntracked}
+              onChange={(event) => onIncludeUntrackedChange(event.target.checked)}
+              disabled={Boolean(busy)}
+            />
+            {t("Include untracked files")}
+          </label>
+          <button type="submit" disabled={!dirty || Boolean(busy)}>
+            {busy === "stash-create" ? <LoaderCircle className="spin" size={12} /> : <Archive size={12} />}
+            {t("Stash {{count}} files", { count: changedFileCount })}
+          </button>
+        </form>
+      </header>
+
+      {loading ? (
+        <div className="git-loading-state">
+          <LoaderCircle className="spin" size={15} /> {t("Reading stashes")}
+        </div>
+      ) : stashes.length === 0 ? (
+        <div className="git-stash-empty">
+          <Archive size={22} />
+          <strong>{t("No stashes yet")}</strong>
+          <span>{dirty ? t("Use the form above to save these local changes.") : t("Your working tree is clean and there are no saved stashes.")}</span>
+        </div>
+      ) : (
+        <div className="git-stash-list">
+          {stashes.map((stash) => {
+            const confirmingDrop = dropConfirmReference === stash.reference;
+            return (
+              <article className="git-stash-row" key={stash.reference}>
+                <div className="git-stash-index">{stash.index}</div>
+                <div className="git-stash-copy">
+                  <strong>{stash.subject}</strong>
+                  <span><code>{stash.reference}</code> · {formatCommitDate(stash.createdAt, true)}</span>
+                </div>
+                {confirmingDrop ? (
+                  <div className="git-stash-drop-confirm">
+                    <AlertTriangle size={12} />
+                    <span>{t("Delete permanently?")}</span>
+                    <button onClick={onCancelDrop} disabled={Boolean(busy)}>{t("Cancel")}</button>
+                    <button data-danger="true" onClick={() => onDrop(stash)} disabled={Boolean(busy)}>
+                      {busy === "stash-drop" ? <LoaderCircle className="spin" size={11} /> : <Trash2 size={11} />}
+                      {t("Drop")}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="git-stash-actions">
+                    <button
+                      onClick={() => onApply(stash)}
+                      disabled={dirty || Boolean(busy)}
+                      title={dirty ? t("Commit or stash current changes first") : t("Restore changes and keep this stash")}
+                    >
+                      <RotateCcw size={11} /> {t("Apply")}
+                    </button>
+                    <button
+                      onClick={() => onPop(stash)}
+                      disabled={dirty || Boolean(busy)}
+                      title={dirty ? t("Commit or stash current changes first") : t("Restore changes and remove this stash")}
+                    >
+                      <Archive size={11} /> {t("Pop")}
+                    </button>
+                    <button className="git-stash-drop" onClick={() => onDrop(stash)} disabled={Boolean(busy)} title={t("Drop stash")}>
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+      {dirty && stashes.length > 0 ? (
+        <p className="git-stash-dirty-note">
+          <AlertTriangle size={11} /> {t("Apply and Pop are available after the working tree is clean.")}
+        </p>
+      ) : null}
+    </main>
   );
 }
 

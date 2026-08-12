@@ -31,6 +31,9 @@ export function projectActivity(project: ProjectView, t: Translate = (key) => ke
       ? t("{{count}} task crashed", { count: project.crashedTaskCount })
       : t("{{count}} tasks crashed", { count: project.crashedTaskCount });
   }
+  if (project.taskCount === 0) {
+    return t("No automation");
+  }
   if (project.startedAt) {
     return t("Opened {{time}}", { time: relativeTime(project.startedAt, t) });
   }

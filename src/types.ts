@@ -15,6 +15,7 @@ export interface Project {
   path: string;
   command: string;
   tasks: ProjectTask[];
+  tags: string[];
   favorite: boolean;
   sortOrder: number;
 }
@@ -26,9 +27,17 @@ export interface ProjectView extends Project {
   stoppedAt: number | null;
   finderTagColor: FinderTagColor | null;
   gitStatus: GitStatus | null;
+  languages: ProjectLanguage[];
   taskCount: number;
   runningTaskCount: number;
   crashedTaskCount: number;
+}
+
+export interface ProjectLanguage {
+  name: string;
+  bytes: number;
+  percentage: number;
+  color: string;
 }
 
 export interface ProjectTask {
@@ -137,6 +146,14 @@ export interface GitWorkspace {
   behind: number;
   files: GitFileChange[];
   branches: string[];
+  stashes: GitStash[];
+}
+
+export interface GitStash {
+  reference: string;
+  index: number;
+  subject: string;
+  createdAt: string;
 }
 
 export interface GitFileChange {
@@ -198,4 +215,5 @@ export interface ProjectDraft {
   path: string;
   command: string;
   tasks: ProjectTask[];
+  tags: string[];
 }

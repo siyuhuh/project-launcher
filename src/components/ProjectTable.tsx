@@ -12,6 +12,7 @@ import { projectActivity } from "../lib/projectMeta";
 import { useI18n } from "../lib/i18n";
 import type { ProjectEndpoint, ProjectView } from "../types";
 import { GitStatusBadge } from "./ProjectCard";
+import { ProjectCodeSummary, ProjectTags } from "./ProjectCodeSummary";
 
 interface Props {
   projects: ProjectView[];
@@ -59,13 +60,14 @@ export function ProjectTable({
             <th>{t("Project")}</th>
             <th>{t("Activity")}</th>
             <th>{t("Git")}</th>
-            <th>{t("Command")}</th>
+            <th>{t("Code / command")}</th>
             <th aria-label={t("Project actions")} />
           </tr>
         </thead>
         <tbody>
           {projects.map((project) => {
             const running = project.status === "running";
+            const hasTasks = project.taskCount > 0;
             const pending = pendingIds.has(project.id);
             const primaryEndpoint = projectEndpoints[project.id]?.[0];
             return (
@@ -128,10 +130,16 @@ export function ProjectTable({
                   />
                 </td>
                 <td>
-                  <div className="table-command" title={project.command}>
-                    <span>$</span>
-                    <code>{project.command}</code>
-                    {project.taskCount > 1 ? <em>{project.taskCount}</em> : null}
+                  <div className="table-code-cell">
+                    <div className="table-code-labels">
+                      <ProjectTags tags={project.tags} compact />
+                      <ProjectCodeSummary languages={project.languages} compact />
+                    </div>
+                    <div className="table-command" data-empty={!hasTasks} title={project.command || t("No automation configured")}>
+                      {hasTasks ? <span>$</span> : null}
+                      <code>{project.command || t("No automation")}</code>
+                      {project.taskCount > 1 ? <em>{project.taskCount}</em> : null}
+                    </div>
                   </div>
                 </td>
                 <td>
@@ -140,16 +148,17 @@ export function ProjectTable({
                       className="run-button table-run-button"
                       data-running={running}
                       onClick={() => onToggle(project)}
-                      disabled={pending}
+                      disabled={pending || !hasTasks}
+                      title={!hasTasks ? t("No automation tasks configured") : undefined}
                     >
-                      {pending ? (
+                      {!hasTasks ? null : pending ? (
                         <LoaderCircle className="spin" size={12} />
                       ) : running ? (
                         <Square size={10} fill="currentColor" />
                       ) : (
                         <Play size={11} fill="currentColor" />
                       )}
-                      {pending ? t("Working") : running ? t("Stop") : t("Run")}
+                      {!hasTasks ? t("No tasks") : pending ? t("Working") : running ? t("Stop") : t("Run")}
                     </button>
                     {primaryEndpoint ? (
                       <button
@@ -184,6 +193,7 @@ export function ProjectTable({
 }
 
 function activityTitle(project: ProjectView, t: (key: string) => string): string {
+  if (project.taskCount === 0) return t("No automation tasks configured");
   if (!project.startedAt) return t("This project has not been started with Runbox yet");
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",

@@ -179,6 +179,29 @@ export function unstageGitFiles(projectId: string, paths: string[]): Promise<Git
   return invoke("unstage_git_files", { projectId, paths });
 }
 
+export function createStash(
+  projectId: string,
+  message: string,
+  includeUntracked: boolean,
+): Promise<GitWorkspace> {
+  return invoke("create_stash", { projectId, message, includeUntracked });
+}
+
+export function applyStash(
+  projectId: string,
+  stashReference: string,
+  pop: boolean,
+): Promise<GitWorkspace> {
+  return invoke("apply_stash", { projectId, stashReference, pop });
+}
+
+export function dropStash(
+  projectId: string,
+  stashReference: string,
+): Promise<GitWorkspace> {
+  return invoke("drop_stash", { projectId, stashReference });
+}
+
 export function createCommit(projectId: string, message: string): Promise<GitWorkspace> {
   return invoke("create_commit", { projectId, message });
 }

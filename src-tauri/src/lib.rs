@@ -195,6 +195,29 @@ async fn unstage_git_files(project_id: String, paths: Vec<String>) -> Result<Git
 }
 
 #[tauri::command]
+async fn create_stash(
+    project_id: String,
+    message: String,
+    include_untracked: bool,
+) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::create_git_stash(&project_id, &message, include_untracked)).await
+}
+
+#[tauri::command]
+async fn apply_stash(
+    project_id: String,
+    stash_reference: String,
+    pop: bool,
+) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::apply_git_stash(&project_id, &stash_reference, pop)).await
+}
+
+#[tauri::command]
+async fn drop_stash(project_id: String, stash_reference: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::drop_git_stash(&project_id, &stash_reference)).await
+}
+
+#[tauri::command]
 async fn create_commit(project_id: String, message: String) -> Result<GitWorkspace, String> {
     run_blocking(move || core::commit_git(&project_id, &message)).await
 }
@@ -291,6 +314,9 @@ pub fn run() {
             open_developer_tool,
             stage_git_files,
             unstage_git_files,
+            create_stash,
+            apply_stash,
+            drop_stash,
             create_commit,
             get_commit_message_providers,
             open_local_ai_setup,
