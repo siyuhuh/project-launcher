@@ -36,6 +36,11 @@ fn remove_project(project_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn trash_project_directory(project_id: String) -> Result<(), String> {
+    run_blocking(move || core::trash_project_directory(&project_id)).await
+}
+
+#[tauri::command]
 fn detect_project(path: String) -> Result<ProjectDraft, String> {
     core::inspect_project(&path)
 }
@@ -258,6 +263,7 @@ pub fn run() {
             reorder_project_list,
             refresh_finder_colors,
             remove_project,
+            trash_project_directory,
             detect_project,
             launch_project,
             halt_project,

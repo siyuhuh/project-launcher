@@ -4,6 +4,7 @@ import {
   FolderOpen,
   Settings2,
   TerminalSquare,
+  Trash2,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -30,6 +31,7 @@ interface Props {
   onOpenFolder: () => void;
   onOpenTerminal: () => void;
   onEdit: () => void;
+  onDelete: () => void;
 }
 
 interface MenuPosition {
@@ -48,6 +50,7 @@ export function ProjectContextMenu({
   onOpenFolder,
   onOpenTerminal,
   onEdit,
+  onDelete,
 }: Props) {
   const { t } = useI18n();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -145,6 +148,12 @@ export function ProjectContextMenu({
 
       <MenuSeparator />
       <MenuItem icon={Settings2} label={t("Edit project")} onClick={() => invoke(onEdit)} />
+      <MenuItem
+        danger
+        icon={Trash2}
+        label={t("Remove project...")}
+        onClick={() => invoke(onDelete)}
+      />
     </div>,
     document.body,
   );
@@ -154,13 +163,15 @@ function MenuItem({
   icon: Icon,
   label,
   onClick,
+  danger = false,
 }: {
   icon: LucideIcon;
   label: ReactNode;
   onClick: () => void;
+  danger?: boolean;
 }) {
   return (
-    <button type="button" role="menuitem" onClick={onClick}>
+    <button type="button" role="menuitem" data-danger={danger} onClick={onClick}>
       <Icon size={14} />
       <span>{label}</span>
     </button>

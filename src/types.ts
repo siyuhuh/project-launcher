@@ -1,4 +1,5 @@
 export type ProcessStatus = "running" | "stopped";
+export type ProjectRemovalMode = "unlink" | "trash";
 export type FinderTagColor =
   | "gray"
   | "green"

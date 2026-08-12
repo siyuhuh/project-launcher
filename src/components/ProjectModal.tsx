@@ -8,7 +8,6 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
-  Trash2,
   X,
 } from "lucide-react";
 import { detectProject } from "../lib/backend";
@@ -19,15 +18,13 @@ interface Props {
   project: ProjectForm;
   onClose: () => void;
   onSave: (project: ProjectForm) => Promise<void>;
-  onDelete?: (project: ProjectForm) => Promise<void>;
+  onRequestDelete?: (project: ProjectForm) => void;
 }
 
-export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
+export function ProjectModal({ project, onClose, onSave, onRequestDelete }: Props) {
   const { t } = useI18n();
   const [form, setForm] = useState(() => withProjectTasks(project));
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [detectingTasks, setDetectingTasks] = useState(false);
   const [taskDetectionError, setTaskDetectionError] = useState<string | null>(null);
   const editing = Boolean(project.id);
@@ -126,20 +123,6 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
         ? task.dependsOn.filter((id) => id !== dependencyId)
         : [...task.dependsOn, dependencyId],
     });
-  }
-
-  async function remove() {
-    if (!onDelete) return;
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
-    setDeleting(true);
-    try {
-      await onDelete(form);
-    } finally {
-      setDeleting(false);
-    }
   }
 
   return (
@@ -351,16 +334,13 @@ export function ProjectModal({ project, onClose, onSave, onDelete }: Props) {
             {t("Commands use your login shell, so pnpm, NVM and other Terminal tools remain available. The first task remains compatible with the existing `p project` command.")}
           </p>
           <footer className="modal-footer">
-            {onDelete ? (
+            {onRequestDelete ? (
               <button
                 className="delete-button"
                 type="button"
-                data-confirm={confirmDelete}
-                onClick={() => void remove()}
-                disabled={deleting}
+                onClick={() => onRequestDelete(form)}
               >
-                {deleting ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}
-                {confirmDelete ? t("Click again to remove") : t("Remove")}
+                {t("Remove project...")}
               </button>
             ) : <span />}
             <div>

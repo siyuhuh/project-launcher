@@ -41,7 +41,7 @@ export const THEME_OPTIONS: ThemeOption[] = [
   },
   {
     id: "spool",
-    name: "Spool",
+    name: "Ember",
     detail: "Warm ink with golden amber",
     swatches: ["#11100e", "#211e19", "#e8b96d"],
   },

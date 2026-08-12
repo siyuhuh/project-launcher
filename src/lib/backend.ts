@@ -34,8 +34,12 @@ export function refreshFinderColors(): Promise<void> {
   return invoke("refresh_finder_colors");
 }
 
-export function deleteProject(projectId: string): Promise<void> {
+export function removeProjectBinding(projectId: string): Promise<void> {
   return invoke("remove_project", { projectId });
+}
+
+export function trashProjectDirectory(projectId: string): Promise<void> {
+  return invoke("trash_project_directory", { projectId });
 }
 
 export function detectProject(path: string): Promise<ProjectDraft> {

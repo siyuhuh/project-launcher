@@ -426,7 +426,7 @@ Open **Preferences** from the sidebar or press `⌘,`. Interface scaling ranges 
 applies to the entire window, including Git history, diffs, and developer tools. Use `⌘+`, `⌘−`,
 and `⌘0` for quick resizing.
 
-Runbox includes Runbox, Graphite, Spool, and Solarized themes. Scale and theme preferences are saved
+Runbox includes Runbox, Graphite, Ember, and Solarized themes. Scale and theme preferences are saved
 locally and restored on the next launch.
 
 ### Finder tag colors on macOS

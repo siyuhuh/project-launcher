@@ -1376,6 +1376,20 @@ button.git-status:active {
   background: var(--control-hover);
 }
 
+.project-context-menu > button[data-danger="true"] {
+  color: color-mix(in srgb, var(--red), var(--text) 22%);
+}
+
+.project-context-menu > button[data-danger="true"] svg {
+  color: var(--red);
+}
+
+.project-context-menu > button[data-danger="true"]:hover,
+.project-context-menu > button[data-danger="true"]:focus-visible {
+  color: #ffd9d5;
+  background: color-mix(in srgb, var(--red), transparent 90%);
+}
+
 .project-context-menu > button:active {
   transform: scale(0.98);
 }
@@ -3631,6 +3645,239 @@ button.git-status:active {
   opacity: 1;
   transform: scale(1);
   transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+.project-delete-dialog {
+  width: min(590px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid #3a332f;
+  border-radius: 10px;
+  background: #101411;
+  box-shadow: 0 30px 80px rgb(0 0 0 / 55%);
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+@starting-style {
+  .project-delete-dialog {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.project-delete-dialog form {
+  display: grid;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  padding: 20px 22px 22px;
+  gap: 15px;
+}
+
+.project-delete-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.project-delete-path {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 9px 10px;
+  gap: 8px;
+  color: var(--quiet);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0b0e0c;
+}
+
+.project-delete-path svg {
+  flex: 0 0 auto;
+}
+
+.project-delete-path code {
+  min-width: 0;
+  overflow: hidden;
+  color: #aeb8b0;
+  font-family: inherit;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-delete-options {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  border: 0;
+}
+
+.project-delete-options legend {
+  margin-bottom: 7px;
+  color: #aab4ac;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.project-delete-options > label {
+  display: grid;
+  grid-template-columns: 14px 31px minmax(0, 1fr);
+  align-items: center;
+  padding: 11px;
+  gap: 9px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d110e;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.project-delete-options > label:hover {
+  border-color: var(--line-strong);
+  background: #131814;
+}
+
+.project-delete-options > label[data-selected="true"] {
+  color: var(--text);
+  border-color: #445149;
+  background: #151a16;
+  box-shadow: inset 2px 0 var(--green);
+}
+
+.project-delete-options > label[data-selected="true"][data-danger="true"] {
+  border-color: #59403c;
+  background: #1a1412;
+  box-shadow: inset 2px 0 var(--red);
+}
+
+.project-delete-options input[type="radio"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--green);
+}
+
+.project-delete-options label[data-danger="true"] input[type="radio"] {
+  accent-color: var(--red);
+}
+
+.project-delete-option-icon {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  color: var(--quiet);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #111512;
+  place-items: center;
+}
+
+.project-delete-options label[data-danger="true"] .project-delete-option-icon {
+  color: var(--red);
+  border-color: #493531;
+  background: #1a1211;
+}
+
+.project-delete-options label > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.project-delete-options strong {
+  font-size: 10px;
+}
+
+.project-delete-options small {
+  color: var(--quiet);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.project-delete-confirmation {
+  display: grid;
+  gap: 11px;
+}
+
+.project-delete-confirmation > label {
+  display: grid;
+  gap: 7px;
+  color: #b9a7a3;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.project-delete-confirmation input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  color: var(--text);
+  border: 1px solid #4a3935;
+  border-radius: 7px;
+  outline: 0;
+  background: #0c0a09;
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.project-delete-confirmation input:focus {
+  border-color: #75534c;
+  box-shadow: 0 0 0 3px rgb(226 100 88 / 8%);
+}
+
+.project-delete-warning {
+  display: flex;
+  align-items: flex-start;
+  padding: 9px 10px;
+  gap: 8px;
+  color: #e0b48e;
+  border: 1px solid #59432f;
+  border-radius: 7px;
+  background: #1a1510;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.project-delete-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--amber);
+}
+
+.project-delete-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 17px;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.project-delete-footer p {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 8px;
+}
+
+.project-delete-footer > div {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.project-delete-submit[data-mode="trash"]:not(:disabled) {
+  color: #1b0d0b;
+  background: var(--red);
+}
+
+.project-delete-submit:disabled {
+  cursor: not-allowed;
 }
 
 @starting-style {

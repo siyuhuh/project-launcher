@@ -36,12 +36,12 @@ import { GitPanel } from "./components/GitPanel";
 import { PreferencesPanel } from "./components/PreferencesPanel";
 import { ProjectCard } from "./components/ProjectCard";
 import { ProjectContextMenu } from "./components/ProjectContextMenu";
+import { ProjectDeleteDialog } from "./components/ProjectDeleteDialog";
 import { ProjectModal } from "./components/ProjectModal";
 import { ProjectTasksPanel } from "./components/ProjectTasksPanel";
 import { ProjectTable } from "./components/ProjectTable";
 import { WorkspaceGroupsPanel } from "./components/WorkspaceGroupsPanel";
 import {
-  deleteProject,
   getProjects,
   getProjectTasks,
   getWorkspaceGroups,
@@ -49,11 +49,13 @@ import {
   openProjectTaskPort,
   openProjectTerminal,
   refreshFinderColors,
+  removeProjectBinding,
   reorderProjects,
   saveProject,
   setProjectFavorite,
   startProject,
   stopProject,
+  trashProjectDirectory,
 } from "./lib/backend";
 import { commandTag, type CommandTag } from "./lib/projectMeta";
 import {
@@ -62,7 +64,13 @@ import {
   savePreferences,
   updateUiScale,
 } from "./lib/preferences";
-import type { Project, ProjectEndpoint, ProjectForm, ProjectView } from "./types";
+import type {
+  Project,
+  ProjectEndpoint,
+  ProjectForm,
+  ProjectRemovalMode,
+  ProjectView,
+} from "./types";
 import { useI18n } from "./lib/i18n";
 import "./App.css";
 
@@ -121,6 +129,7 @@ export default function App() {
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [favoritePendingIds, setFavoritePendingIds] = useState<Set<string>>(() => new Set());
   const [modalProject, setModalProject] = useState<ProjectForm | null>(null);
+  const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
   const [taskProjectId, setTaskProjectId] = useState<string | null>(null);
   const [gitProjectId, setGitProjectId] = useState<string | null>(null);
   const [toolsProjectId, setToolsProjectId] = useState<string | null>(null);
@@ -238,6 +247,7 @@ export default function App() {
       if (event.key === "Escape") {
         setProjectMenu(null);
         setModalProject(null);
+        setDeleteProjectId(null);
         setTaskProjectId(null);
         setGitProjectId(null);
         setToolsProjectId(null);
@@ -346,6 +356,8 @@ export default function App() {
   const gitProject = projects.find((project) => project.id === gitProjectId) ?? null;
   const toolsProject = projects.find((project) => project.id === toolsProjectId) ?? null;
   const menuProject = projects.find((project) => project.id === projectMenu?.projectId) ?? null;
+  const deleteProjectTarget =
+    projects.find((project) => project.id === deleteProjectId) ?? null;
   const canReorder =
     sortMode === "manual" && filter === "all" && tagFilter === "all" && query.trim() === "";
 
@@ -414,13 +426,25 @@ export default function App() {
     }
   }
 
-  async function handleDelete(project: ProjectForm) {
+  async function handleDelete(project: ProjectView, mode: ProjectRemovalMode) {
     try {
-      await deleteProject(project.id);
+      if (mode === "trash") {
+        await trashProjectDirectory(project.id);
+      } else {
+        await removeProjectBinding(project.id);
+      }
+      setDeleteProjectId(null);
       setModalProject(null);
       if (taskProjectId === project.id) setTaskProjectId(null);
+      if (gitProjectId === project.id) setGitProjectId(null);
+      if (toolsProjectId === project.id) setToolsProjectId(null);
       await refreshProjects();
-      showToast(t("{{name}} removed", { name: project.name }), "success");
+      showToast(
+        mode === "trash"
+          ? t("{{name}} moved to Trash", { name: project.name })
+          : t("{{name}} removed from Runbox", { name: project.name }),
+        "success",
+      );
     } catch (error) {
       showToast(errorMessage(error), "error");
       throw error;
@@ -776,7 +800,21 @@ export default function App() {
           project={modalProject}
           onClose={() => setModalProject(null)}
           onSave={handleSave}
-          onDelete={modalProject.id ? handleDelete : undefined}
+          onRequestDelete={
+            modalProject.id
+              ? () => {
+                  setModalProject(null);
+                  setDeleteProjectId(modalProject.id);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+      {deleteProjectTarget ? (
+        <ProjectDeleteDialog
+          project={deleteProjectTarget}
+          onClose={() => setDeleteProjectId(null)}
+          onConfirm={(mode) => handleDelete(deleteProjectTarget, mode)}
         />
       ) : null}
       {taskProject ? (
@@ -837,6 +875,7 @@ export default function App() {
             )
           }
           onEdit={() => setModalProject(menuProject)}
+          onDelete={() => setDeleteProjectId(menuProject.id)}
         />
       ) : null}
       {toast ? (

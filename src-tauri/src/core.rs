@@ -756,6 +756,87 @@ pub fn delete_project(project_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn trash_project_directory(project_id: &str) -> Result<(), String> {
+    if project_status(project_id)? == ProcessStatus::Running {
+        return Err("Stop the project before moving its folder to Trash".to_string());
+    }
+
+    let projects = list_projects()?;
+    let project = projects
+        .iter()
+        .find(|project| project.id == project_id)
+        .cloned()
+        .ok_or_else(|| "Project not found".to_string())?;
+    let target = validate_project_trash_target(&project.path)?;
+    let remaining_projects: Vec<Project> = projects
+        .iter()
+        .filter(|item| item.id != project_id)
+        .cloned()
+        .collect();
+
+    // Forget the binding first. If the OS refuses the Trash operation, restore it so
+    // a recoverable filesystem error never silently removes the project from Runbox.
+    write_projects(&remaining_projects)?;
+    if let Err(error) = trash::delete(&target) {
+        return match write_projects(&projects) {
+            Ok(()) => Err(format!(
+                "Could not move the project folder to Trash: {error}"
+            )),
+            Err(restore_error) => Err(format!(
+                "Could not move the project folder to Trash ({error}), and could not restore the Runbox binding ({restore_error})"
+            )),
+        };
+    }
+
+    for task in project.tasks {
+        let _ = fs::remove_file(task_runtime_file(project_id, &task.id)?);
+        let _ = fs::remove_file(task_log_file(project_id, &task.id)?);
+        let _ = fs::remove_file(task_exit_file(project_id, &task.id)?);
+    }
+    prune_workspace_groups()?;
+    Ok(())
+}
+
+fn validate_project_trash_target(project_path: &str) -> Result<PathBuf, String> {
+    let configured_path = PathBuf::from(project_path);
+    let metadata = fs::symlink_metadata(&configured_path)
+        .map_err(|_| format!("Project directory does not exist: {project_path}"))?;
+    if metadata.file_type().is_symlink() {
+        return Err("Refusing to move a project path that is now a symbolic link".to_string());
+    }
+    if !metadata.is_dir() {
+        return Err(format!("Project path is not a directory: {project_path}"));
+    }
+
+    let target = fs::canonicalize(&configured_path).map_err(display_error)?;
+    if target != configured_path {
+        return Err(
+            "Refusing to move the folder because its resolved path has changed since it was added"
+                .to_string(),
+        );
+    }
+
+    validate_trash_target(&target, dirs::home_dir().as_deref(), &data_directory()?)?;
+    Ok(target)
+}
+
+fn validate_trash_target(
+    target: &Path,
+    home_directory: Option<&Path>,
+    app_data_directory: &Path,
+) -> Result<(), String> {
+    if target.parent().is_none() {
+        return Err("Refusing to move a filesystem root to Trash".to_string());
+    }
+    if home_directory.is_some_and(|home| target == home) {
+        return Err("Refusing to move your home directory to Trash".to_string());
+    }
+    if app_data_directory.starts_with(target) {
+        return Err("Refusing to move a folder that contains Runbox app data".to_string());
+    }
+    Ok(())
+}
+
 pub fn inspect_project(path: &str) -> Result<ProjectDraft, String> {
     let normalized = normalize_path(path)?;
     let directory = Path::new(&normalized);
@@ -3968,9 +4049,9 @@ mod tests {
         parse_http_target, read_git_commit_detail, read_git_history, read_git_workspace,
         revert_git_commit_in_path, run_git_checked, sanitize_commit_message, task_display_name,
         task_readiness_for_command, task_start_order, validate_git_path,
-        validate_task_dependency_graph,
+        validate_task_dependency_graph, validate_trash_target,
     };
-    use std::fs;
+    use std::{fs, path::Path};
     use uuid::Uuid;
 
     #[test]
@@ -4084,6 +4165,19 @@ mod tests {
         assert!(validate_git_path("src/App.tsx").is_ok());
         assert!(validate_git_path("../secrets.txt").is_err());
         assert!(validate_git_path("/tmp/secrets.txt").is_err());
+    }
+
+    #[test]
+    fn protects_home_and_runbox_data_from_trash_operations() {
+        let sandbox = std::env::temp_dir().join(format!("runbox-trash-test-{}", Uuid::new_v4()));
+        let home = sandbox.join("home");
+        let app_data = home.join(".config/Runbox");
+        let safe_project = home.join("Projects/web");
+
+        assert!(validate_trash_target(&safe_project, Some(&home), &app_data).is_ok());
+        assert!(validate_trash_target(&home, Some(&home), &app_data).is_err());
+        assert!(validate_trash_target(&app_data, Some(&home), &app_data).is_err());
+        assert!(validate_trash_target(Path::new("/"), Some(&home), &app_data).is_err());
     }
 
     #[test]
