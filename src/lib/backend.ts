@@ -145,8 +145,9 @@ export function getGitHistory(
   offset: number,
   limit: number,
   filePath: string | null,
+  allBranches = false,
 ): Promise<GitHistoryPage> {
-  return invoke("get_git_history", { projectId, offset, limit, filePath });
+  return invoke("get_git_history", { projectId, offset, limit, filePath, allBranches });
 }
 
 export function getGitCommitDetail(
@@ -177,6 +178,14 @@ export function stageGitFiles(projectId: string, paths: string[]): Promise<GitWo
 
 export function unstageGitFiles(projectId: string, paths: string[]): Promise<GitWorkspace> {
   return invoke("unstage_git_files", { projectId, paths });
+}
+
+export function discardGitFiles(projectId: string, paths: string[]): Promise<GitWorkspace> {
+  return invoke("discard_git_files", { projectId, paths });
+}
+
+export function discardAllGitChanges(projectId: string): Promise<GitWorkspace> {
+  return invoke("discard_all_git_changes", { projectId });
 }
 
 export function createStash(
@@ -225,8 +234,47 @@ export function createBranch(projectId: string, branch: string): Promise<GitWork
   return invoke("create_branch", { projectId, branch });
 }
 
+export function createBranchFromCommit(
+  projectId: string,
+  branch: string,
+  commitHash: string,
+): Promise<GitWorkspace> {
+  return invoke("create_branch_from_commit", { projectId, branch, commitHash });
+}
+
 export function switchBranch(projectId: string, branch: string): Promise<GitWorkspace> {
   return invoke("switch_branch", { projectId, branch });
+}
+
+export function renameBranch(
+  projectId: string,
+  branch: string,
+  nextBranch: string,
+): Promise<GitWorkspace> {
+  return invoke("rename_branch", { projectId, branch, nextBranch });
+}
+
+export function deleteBranch(
+  projectId: string,
+  branch: string,
+  force: boolean,
+): Promise<GitWorkspace> {
+  return invoke("delete_branch", { projectId, branch, force });
+}
+
+export function mergeBranch(projectId: string, branch: string): Promise<GitWorkspace> {
+  return invoke("merge_branch", { projectId, branch });
+}
+
+export function rebaseBranch(projectId: string, branch: string): Promise<GitWorkspace> {
+  return invoke("rebase_branch", { projectId, branch });
+}
+
+export function cherryPickCommit(
+  projectId: string,
+  commitHash: string,
+): Promise<GitWorkspace> {
+  return invoke("cherry_pick_commit", { projectId, commitHash });
 }
 
 export function fetchRepository(projectId: string): Promise<GitWorkspace> {

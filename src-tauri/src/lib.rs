@@ -154,8 +154,18 @@ async fn get_git_history(
     offset: usize,
     limit: usize,
     file_path: Option<String>,
+    all_branches: bool,
 ) -> Result<GitHistoryPage, String> {
-    run_blocking(move || core::git_history(&project_id, offset, limit, file_path.as_deref())).await
+    run_blocking(move || {
+        core::git_history(
+            &project_id,
+            offset,
+            limit,
+            file_path.as_deref(),
+            all_branches,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -192,6 +202,16 @@ async fn stage_git_files(project_id: String, paths: Vec<String>) -> Result<GitWo
 #[tauri::command]
 async fn unstage_git_files(project_id: String, paths: Vec<String>) -> Result<GitWorkspace, String> {
     run_blocking(move || core::unstage_git_paths(&project_id, &paths)).await
+}
+
+#[tauri::command]
+async fn discard_git_files(project_id: String, paths: Vec<String>) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::discard_git_paths(&project_id, &paths)).await
+}
+
+#[tauri::command]
+async fn discard_all_git_changes(project_id: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::discard_all_git_changes(&project_id)).await
 }
 
 #[tauri::command]
@@ -246,8 +266,54 @@ async fn create_branch(project_id: String, branch: String) -> Result<GitWorkspac
 }
 
 #[tauri::command]
+async fn create_branch_from_commit(
+    project_id: String,
+    branch: String,
+    commit_hash: String,
+) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::create_git_branch_from_commit(&project_id, &branch, &commit_hash))
+        .await
+}
+
+#[tauri::command]
 async fn switch_branch(project_id: String, branch: String) -> Result<GitWorkspace, String> {
     run_blocking(move || core::switch_git_branch(&project_id, &branch)).await
+}
+
+#[tauri::command]
+async fn rename_branch(
+    project_id: String,
+    branch: String,
+    next_branch: String,
+) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::rename_git_branch(&project_id, &branch, &next_branch)).await
+}
+
+#[tauri::command]
+async fn delete_branch(
+    project_id: String,
+    branch: String,
+    force: bool,
+) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::delete_git_branch(&project_id, &branch, force)).await
+}
+
+#[tauri::command]
+async fn merge_branch(project_id: String, branch: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::merge_git_branch(&project_id, &branch)).await
+}
+
+#[tauri::command]
+async fn rebase_branch(project_id: String, branch: String) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::rebase_git_branch(&project_id, &branch)).await
+}
+
+#[tauri::command]
+async fn cherry_pick_commit(
+    project_id: String,
+    commit_hash: String,
+) -> Result<GitWorkspace, String> {
+    run_blocking(move || core::cherry_pick_git_commit(&project_id, &commit_hash)).await
 }
 
 #[tauri::command]
@@ -314,6 +380,8 @@ pub fn run() {
             open_developer_tool,
             stage_git_files,
             unstage_git_files,
+            discard_git_files,
+            discard_all_git_changes,
             create_stash,
             apply_stash,
             drop_stash,
@@ -322,7 +390,13 @@ pub fn run() {
             open_local_ai_setup,
             generate_commit_message,
             create_branch,
+            create_branch_from_commit,
             switch_branch,
+            rename_branch,
+            delete_branch,
+            merge_branch,
+            rebase_branch,
+            cherry_pick_commit,
             fetch_repository,
             pull_repository,
             push_repository,

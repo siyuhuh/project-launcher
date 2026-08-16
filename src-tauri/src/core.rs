@@ -165,6 +165,7 @@ pub struct GitWorkspace {
     pub behind: u32,
     pub files: Vec<GitFileChange>,
     pub branches: Vec<String>,
+    pub remote_branches: Vec<String>,
     pub stashes: Vec<GitStash>,
 }
 
@@ -181,6 +182,7 @@ pub struct GitStash {
 #[serde(rename_all = "camelCase")]
 pub struct GitFileChange {
     pub path: String,
+    pub previous_path: Option<String>,
     pub status: String,
     pub staged: bool,
     pub unstaged: bool,
@@ -2086,9 +2088,10 @@ pub fn git_history(
     offset: usize,
     limit: usize,
     file_path: Option<&str>,
+    all_branches: bool,
 ) -> Result<GitHistoryPage, String> {
     let project = find_project(project_id)?;
-    read_git_history(&project.path, offset, limit, file_path)
+    read_git_history(&project.path, offset, limit, file_path, all_branches)
 }
 
 pub fn git_commit_detail(project_id: &str, commit_hash: &str) -> Result<GitCommitDetail, String> {
@@ -2367,25 +2370,329 @@ pub fn generate_commit_message(project_id: &str, provider_id: &str) -> Result<St
 
 pub fn create_git_branch(project_id: &str, branch: &str) -> Result<GitWorkspace, String> {
     let project = find_project(project_id)?;
-    let branch = branch.trim();
-    if branch.is_empty() {
-        return Err("Branch name is required".to_string());
-    }
-    run_git_checked(&project.path, &["check-ref-format", "--branch", branch])?;
+    let branch = validate_branch_name(&project.path, branch)?;
     run_git_checked(&project.path, &["switch", "-c", branch])?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn create_git_branch_from_commit(
+    project_id: &str,
+    branch: &str,
+    commit_hash: &str,
+) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let branch = validate_branch_name(&project.path, branch)?;
+    let commit_hash = resolve_commit_hash(&project.path, commit_hash)?;
+    ensure_clean_git_workspace(&project.path, "Create a branch from a commit")?;
+    run_git_checked(&project.path, &["switch", "-c", branch, &commit_hash])?;
     invalidate_git_status(&project.path);
     read_git_workspace(&project.path)
 }
 
 pub fn switch_git_branch(project_id: &str, branch: &str) -> Result<GitWorkspace, String> {
     let project = find_project(project_id)?;
+    switch_git_branch_in_path(&project.path, branch)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+fn switch_git_branch_in_path(path: &str, branch: &str) -> Result<(), String> {
     let branch = branch.trim();
     if branch.is_empty() {
         return Err("Choose a branch".to_string());
     }
-    run_git_checked(&project.path, &["switch", branch])?;
+    if git_ref_exists(path, &format!("refs/heads/{branch}"))? {
+        run_git_checked(path, &["switch", "--", branch])?;
+    } else if git_ref_exists(path, &format!("refs/remotes/{branch}"))? {
+        let local_branch = branch
+            .split_once('/')
+            .map(|(_, name)| name)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| "Remote branch name is invalid".to_string())?;
+        validate_branch_name(path, local_branch)?;
+        if git_ref_exists(path, &format!("refs/heads/{local_branch}"))? {
+            return Err(format!(
+                "Local branch {local_branch} already exists. Check it out directly."
+            ));
+        }
+        run_git_checked(path, &["switch", "--track", branch])?;
+    } else {
+        return Err(format!("Branch {branch} was not found"));
+    }
+    Ok(())
+}
+
+pub fn rename_git_branch(
+    project_id: &str,
+    branch: &str,
+    next_branch: &str,
+) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let branch = validate_local_branch(&project.path, branch)?;
+    let next_branch = validate_branch_name(&project.path, next_branch)?;
+    run_git_checked(&project.path, &["branch", "-m", branch, next_branch])?;
     invalidate_git_status(&project.path);
     read_git_workspace(&project.path)
+}
+
+pub fn delete_git_branch(
+    project_id: &str,
+    branch: &str,
+    force: bool,
+) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let branch = validate_local_branch(&project.path, branch)?;
+    let workspace = read_git_workspace(&project.path)?;
+    if workspace.branch == branch {
+        return Err("Check out another branch before deleting the current branch".to_string());
+    }
+    run_git_checked(
+        &project.path,
+        &["branch", if force { "-D" } else { "-d" }, "--", branch],
+    )?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn merge_git_branch(project_id: &str, branch: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let branch = validate_local_branch(&project.path, branch)?;
+    let workspace = read_git_workspace(&project.path)?;
+    if workspace.branch == branch {
+        return Err("Choose another branch to merge into the current branch".to_string());
+    }
+    merge_git_branch_in_path(&project.path, branch)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+fn merge_git_branch_in_path(path: &str, branch: &str) -> Result<(), String> {
+    ensure_clean_git_workspace(path, "Merge")?;
+    let output = run_git(path, &["merge", "--no-edit", "--", branch])?;
+    if !output.status.success() {
+        let error = git_error(&output);
+        let merge_in_progress = run_git(path, &["rev-parse", "--verify", "MERGE_HEAD"])?
+            .status
+            .success();
+        if merge_in_progress {
+            let abort = run_git(path, &["merge", "--abort"])?;
+            if !abort.status.success() {
+                return Err(format!(
+                    "Merge failed ({error}), and Git could not abort it automatically: {}",
+                    git_error(&abort)
+                ));
+            }
+        }
+        return Err(format!("Merge was not applied. {error}"));
+    }
+    Ok(())
+}
+
+pub fn rebase_git_branch(project_id: &str, branch: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let branch = validate_local_branch(&project.path, branch)?;
+    let workspace = read_git_workspace(&project.path)?;
+    if workspace.branch == branch {
+        return Err("Choose another branch to rebase onto".to_string());
+    }
+    rebase_git_branch_in_path(&project.path, branch)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+fn rebase_git_branch_in_path(path: &str, branch: &str) -> Result<(), String> {
+    ensure_clean_git_workspace(path, "Rebase")?;
+    let output = run_git(path, &["rebase", "--", branch])?;
+    if !output.status.success() {
+        let error = git_error(&output);
+        let abort = run_git(path, &["rebase", "--abort"])?;
+        if !abort.status.success() && rebase_is_in_progress(path) {
+            return Err(format!(
+                "Rebase failed ({error}), and Git could not abort it automatically: {}",
+                git_error(&abort)
+            ));
+        }
+        return Err(format!("Rebase was not applied. {error}"));
+    }
+    Ok(())
+}
+
+pub fn cherry_pick_git_commit(project_id: &str, commit_hash: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    cherry_pick_git_commit_in_path(&project.path, commit_hash)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+fn cherry_pick_git_commit_in_path(path: &str, commit_hash: &str) -> Result<(), String> {
+    ensure_clean_git_workspace(path, "Cherry-pick")?;
+    let commit_hash = resolve_commit_hash(path, commit_hash)?;
+    let parents = run_git_checked(path, &["show", "-s", "--format=%P", &commit_hash])?;
+    if String::from_utf8_lossy(&parents.stdout)
+        .split_whitespace()
+        .count()
+        > 1
+    {
+        return Err(
+            "Cherry-picking a merge commit requires choosing a mainline parent".to_string(),
+        );
+    }
+    let output = run_git(path, &["cherry-pick", &commit_hash])?;
+    if !output.status.success() {
+        let error = git_error(&output);
+        let cherry_pick_in_progress =
+            run_git(path, &["rev-parse", "--verify", "CHERRY_PICK_HEAD"])?
+                .status
+                .success();
+        if cherry_pick_in_progress {
+            let abort = run_git(path, &["cherry-pick", "--abort"])?;
+            if !abort.status.success() {
+                return Err(format!(
+                    "Cherry-pick failed ({error}), and Git could not abort it automatically: {}",
+                    git_error(&abort)
+                ));
+            }
+        }
+        return Err(format!("Cherry-pick was not applied. {error}"));
+    }
+    Ok(())
+}
+
+pub fn discard_git_paths(project_id: &str, paths: &[String]) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let paths = validate_git_paths(paths)?;
+    discard_git_changes(&project, &paths)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+pub fn discard_all_git_changes(project_id: &str) -> Result<GitWorkspace, String> {
+    let project = find_project(project_id)?;
+    let workspace = read_git_workspace(&project.path)?;
+    if workspace.files.is_empty() {
+        return Err("There are no local changes to discard".to_string());
+    }
+    let paths = workspace
+        .files
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
+    discard_git_changes(&project, &paths)?;
+    invalidate_git_status(&project.path);
+    read_git_workspace(&project.path)
+}
+
+fn validate_branch_name<'a>(path: &str, branch: &'a str) -> Result<&'a str, String> {
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+    run_git_checked(path, &["check-ref-format", "--branch", branch])?;
+    Ok(branch)
+}
+
+fn validate_local_branch<'a>(path: &str, branch: &'a str) -> Result<&'a str, String> {
+    let branch = validate_branch_name(path, branch)?;
+    if !git_ref_exists(path, &format!("refs/heads/{branch}"))? {
+        return Err(format!("Local branch {branch} was not found"));
+    }
+    Ok(branch)
+}
+
+fn git_ref_exists(path: &str, reference: &str) -> Result<bool, String> {
+    let output = run_git_allow_status(
+        path,
+        &["show-ref", "--verify", "--quiet", reference],
+        &[0, 1],
+    )?;
+    Ok(output.status.success())
+}
+
+fn ensure_clean_git_workspace(path: &str, operation: &str) -> Result<(), String> {
+    if read_git_workspace(path)?.files.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{operation} requires a clean working tree. Commit or stash local changes first."
+        ))
+    }
+}
+
+fn rebase_is_in_progress(path: &str) -> bool {
+    ["rebase-merge", "rebase-apply"].iter().any(|state| {
+        let Ok(output) = run_git(path, &["rev-parse", "--git-path", state]) else {
+            return false;
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let state_path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        let state_path = if state_path.is_absolute() {
+            state_path
+        } else {
+            Path::new(path).join(state_path)
+        };
+        state_path.exists()
+    })
+}
+
+fn discard_git_changes(project: &Project, paths: &[String]) -> Result<(), String> {
+    let workspace = read_git_workspace(&project.path)?;
+    let mut changes = Vec::with_capacity(paths.len());
+    for path in paths {
+        let change = workspace
+            .files
+            .iter()
+            .find(|change| change.path == *path)
+            .cloned()
+            .ok_or_else(|| format!("{path} no longer has local changes"))?;
+        changes.push(change);
+    }
+
+    let mut restore_paths = Vec::new();
+    let mut added_paths = Vec::new();
+    for change in &changes {
+        if change.status == "??" || change.status.starts_with('A') {
+            move_git_path_to_trash(project, &change.path)?;
+            if change.status != "??" {
+                added_paths.push(change.path.clone());
+            }
+        } else {
+            restore_paths.push(change.path.clone());
+            if let Some(previous_path) = change.previous_path.as_ref() {
+                validate_git_path(previous_path)?;
+                restore_paths.push(previous_path.clone());
+            }
+        }
+    }
+    restore_paths.sort();
+    restore_paths.dedup();
+    added_paths.sort();
+    added_paths.dedup();
+
+    if !restore_paths.is_empty() {
+        let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+        args.extend(restore_paths.iter().map(String::as_str));
+        run_git_checked(&project.path, &args)?;
+    }
+    if !added_paths.is_empty() {
+        let mut args = vec!["rm", "--cached", "-r", "--ignore-unmatch", "--"];
+        args.extend(added_paths.iter().map(String::as_str));
+        run_git_checked(&project.path, &args)?;
+    }
+    Ok(())
+}
+
+fn move_git_path_to_trash(project: &Project, relative_path: &str) -> Result<(), String> {
+    validate_git_path(relative_path)?;
+    let target = Path::new(&project.path).join(relative_path);
+    match fs::symlink_metadata(&target) {
+        Ok(_) => trash::delete(&target)
+            .map_err(|error| format!("Could not move {relative_path} to Trash: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not inspect {relative_path}: {error}")),
+    }
 }
 
 pub fn fetch_git(project_id: &str) -> Result<GitWorkspace, String> {
@@ -3340,6 +3647,7 @@ fn read_git_history(
     offset: usize,
     limit: usize,
     file_path: Option<&str>,
+    all_branches: bool,
 ) -> Result<GitHistoryPage, String> {
     if let Some(file_path) = file_path {
         validate_git_path(file_path)?;
@@ -3355,6 +3663,9 @@ fn read_git_history(
         "--date=iso-strict".to_string(),
         "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%P%x1f%D%x1f%s%x1e".to_string(),
     ];
+    if all_branches {
+        args.push("--all".to_string());
+    }
     if let Some(file_path) = file_path {
         args.push("--follow".to_string());
         args.push("--".to_string());
@@ -3646,7 +3957,11 @@ fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
                 files.push(file);
             }
         } else if record.starts_with("2 ") {
-            if let Some(file) = parse_git_file_record(&record, 10) {
+            if let Some(mut file) = parse_git_file_record(&record, 10) {
+                file.previous_path = records
+                    .get(index + 1)
+                    .filter(|path| !path.is_empty())
+                    .map(|path| String::from_utf8_lossy(path).to_string());
                 files.push(file);
             }
             index += 1;
@@ -3660,6 +3975,7 @@ fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
         } else if let Some(file_path) = record.strip_prefix("? ") {
             files.push(GitFileChange {
                 path: file_path.to_string(),
+                previous_path: None,
                 status: "??".to_string(),
                 staged: false,
                 unstaged: true,
@@ -3684,6 +4000,21 @@ fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
         Vec::new()
     };
     branches.sort_by_key(|value| value.to_lowercase());
+    let remote_branches_output = run_git(
+        path,
+        &["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
+    )?;
+    let mut remote_branches = if remote_branches_output.status.success() {
+        String::from_utf8_lossy(&remote_branches_output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.ends_with("/HEAD"))
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    remote_branches.sort_by_key(|value| value.to_lowercase());
 
     let remote_output = run_git(path, &["remote", "get-url", "origin"])?;
     let remote_url = remote_output
@@ -3705,6 +4036,7 @@ fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
         behind,
         files,
         branches,
+        remote_branches,
         stashes,
     })
 }
@@ -3775,6 +4107,7 @@ fn parse_git_file_record(record: &str, fields: usize) -> Option<GitFileChange> {
 
     Some(GitFileChange {
         path: file_path,
+        previous_path: None,
         status,
         staged: index_status != '.',
         unstaged: worktree_status != '.',
@@ -4429,12 +4762,14 @@ fn display_error(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze_project_languages, commit_message_prompt, migrate_project_tasks,
-        normalize_git_remote, normalize_project_tasks, parse_git_file_record, parse_http_target,
-        read_git_commit_detail, read_git_history, read_git_stashes, read_git_workspace,
-        revert_git_commit_in_path, run_git_checked, sanitize_commit_message, task_display_name,
-        task_readiness_for_command, task_start_order, validate_git_path, validate_stash_reference,
-        validate_task_dependency_graph, validate_trash_target,
+        analyze_project_languages, cherry_pick_git_commit_in_path, commit_message_prompt,
+        discard_git_changes, merge_git_branch_in_path, migrate_project_tasks, normalize_git_remote,
+        normalize_project_tasks, parse_git_file_record, parse_http_target, read_git_commit_detail,
+        read_git_history, read_git_stashes, read_git_workspace, rebase_git_branch_in_path,
+        revert_git_commit_in_path, run_git_checked, sanitize_commit_message,
+        switch_git_branch_in_path, task_display_name, task_readiness_for_command, task_start_order,
+        validate_git_path, validate_stash_reference, validate_task_dependency_graph,
+        validate_trash_target,
     };
     use std::{fs, path::Path};
     use uuid::Uuid;
@@ -4725,12 +5060,13 @@ mod tests {
         let head = run_git_checked(&path, &["rev-parse", "HEAD"]).expect("read head");
         let second_hash = String::from_utf8_lossy(&head.stdout).trim().to_string();
 
-        let first_page = read_git_history(&path, 0, 1, None).expect("first history page");
+        let first_page = read_git_history(&path, 0, 1, None, false).expect("first history page");
         assert_eq!(first_page.commits.len(), 1);
         assert!(first_page.has_more);
         assert_eq!(first_page.commits[0].subject, "add second line");
 
-        let file_history = read_git_history(&path, 0, 20, Some("notes.txt")).expect("file history");
+        let file_history =
+            read_git_history(&path, 0, 20, Some("notes.txt"), false).expect("file history");
         assert_eq!(file_history.commits.len(), 2);
 
         let detail = read_git_commit_detail(&path, &second_hash).expect("commit detail");
@@ -4748,7 +5084,7 @@ mod tests {
             fs::read_to_string(directory.join("notes.txt")).expect("reverted file"),
             "first\n"
         );
-        let history = read_git_history(&path, 0, 1, None).expect("history after revert");
+        let history = read_git_history(&path, 0, 1, None, false).expect("history after revert");
         assert!(
             history.commits[0]
                 .subject
@@ -4797,5 +5133,202 @@ mod tests {
         );
 
         fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
+
+    #[test]
+    fn reads_history_across_branches_when_requested() {
+        let directory =
+            std::env::temp_dir().join(format!("runbox-all-history-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("temporary repository");
+        let path = directory.to_string_lossy();
+
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(directory.join("notes.txt"), "base\n").expect("initial file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+        run_git_checked(&path, &["branch", "-M", "main"]).expect("name main branch");
+        run_git_checked(&path, &["switch", "-c", "feature"]).expect("feature branch");
+        fs::write(directory.join("feature.txt"), "feature\n").expect("feature file");
+        run_git_checked(&path, &["add", "--", "feature.txt"]).expect("stage feature file");
+        run_git_checked(&path, &["commit", "-m", "feature only"]).expect("feature commit");
+        run_git_checked(&path, &["switch", "main"]).expect("return to main");
+
+        let current = read_git_history(&path, 0, 20, None, false).expect("current history");
+        assert!(
+            !current
+                .commits
+                .iter()
+                .any(|commit| commit.subject == "feature only")
+        );
+        let all = read_git_history(&path, 0, 20, None, true).expect("all branch history");
+        assert!(
+            all.commits
+                .iter()
+                .any(|commit| commit.subject == "feature only")
+        );
+
+        fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
+
+    #[test]
+    fn checks_out_local_and_remote_tracking_branches() {
+        let directory =
+            std::env::temp_dir().join(format!("runbox-checkout-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("temporary repository");
+        let path = directory.to_string_lossy();
+
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(directory.join("notes.txt"), "base\n").expect("initial file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+        run_git_checked(&path, &["branch", "-M", "main"]).expect("name main branch");
+        run_git_checked(&path, &["branch", "feature"]).expect("create feature branch");
+
+        switch_git_branch_in_path(&path, "feature").expect("checkout local branch");
+        assert_eq!(
+            read_git_workspace(&path).expect("feature workspace").branch,
+            "feature"
+        );
+        switch_git_branch_in_path(&path, "main").expect("return to main");
+
+        run_git_checked(&path, &["remote", "add", "origin", "."]).expect("add local remote");
+        run_git_checked(
+            &path,
+            &["update-ref", "refs/remotes/origin/review", "feature"],
+        )
+        .expect("create remote tracking ref");
+        switch_git_branch_in_path(&path, "origin/review").expect("checkout remote branch");
+        let workspace = read_git_workspace(&path).expect("remote branch workspace");
+        assert_eq!(workspace.branch, "review");
+        assert!(workspace.branches.iter().any(|branch| branch == "review"));
+
+        fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
+
+    #[test]
+    fn discards_tracked_staged_unstaged_and_renamed_changes() {
+        let directory =
+            std::env::temp_dir().join(format!("runbox-discard-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("temporary repository");
+        let path = directory.to_string_lossy();
+        let project = super::Project {
+            id: "discard-test".to_string(),
+            name: "Discard test".to_string(),
+            path: path.to_string(),
+            command: String::new(),
+            tasks: Vec::new(),
+            tags: Vec::new(),
+            favorite: false,
+            sort_order: 0,
+        };
+
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(directory.join("notes.txt"), "base\n").expect("initial file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+
+        fs::write(directory.join("notes.txt"), "staged\n").expect("staged contents");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage change");
+        fs::write(directory.join("notes.txt"), "unstaged\n").expect("unstaged contents");
+        discard_git_changes(&project, &["notes.txt".to_string()]).expect("discard file changes");
+        assert_eq!(
+            fs::read_to_string(directory.join("notes.txt")).expect("restored file"),
+            "base\n"
+        );
+        assert!(
+            read_git_workspace(&path)
+                .expect("clean workspace")
+                .files
+                .is_empty()
+        );
+
+        run_git_checked(&path, &["mv", "--", "notes.txt", "renamed.txt"]).expect("rename file");
+        let renamed = read_git_workspace(&path).expect("renamed workspace");
+        assert!(renamed.files.iter().any(|file| {
+            file.path == "renamed.txt" && file.previous_path.as_deref() == Some("notes.txt")
+        }));
+        discard_git_changes(&project, &["renamed.txt".to_string()]).expect("discard rename");
+        assert!(directory.join("notes.txt").exists());
+        assert!(!directory.join("renamed.txt").exists());
+        assert!(
+            read_git_workspace(&path)
+                .expect("clean renamed workspace")
+                .files
+                .is_empty()
+        );
+
+        fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
+
+    #[test]
+    fn aborts_conflicting_merge_rebase_and_cherry_pick_operations() {
+        let directory =
+            std::env::temp_dir().join(format!("runbox-integrate-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("temporary repository");
+        let path = directory.to_string_lossy();
+
+        run_git_checked(&path, &["init"]).expect("initialize repository");
+        run_git_checked(&path, &["config", "user.name", "Runbox Test"]).expect("git user");
+        run_git_checked(&path, &["config", "user.email", "runbox@example.invalid"])
+            .expect("git email");
+        fs::write(directory.join("notes.txt"), "base\n").expect("initial file");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage initial file");
+        run_git_checked(&path, &["commit", "-m", "initial"]).expect("initial commit");
+        run_git_checked(&path, &["branch", "-M", "main"]).expect("name main branch");
+
+        run_git_checked(&path, &["switch", "-c", "feature"]).expect("feature branch");
+        fs::write(directory.join("notes.txt"), "feature\n").expect("feature contents");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage feature");
+        run_git_checked(&path, &["commit", "-m", "feature change"]).expect("feature commit");
+        let feature = run_git_checked(&path, &["rev-parse", "HEAD"]).expect("feature hash");
+        let feature_hash = String::from_utf8_lossy(&feature.stdout).trim().to_string();
+
+        run_git_checked(&path, &["switch", "main"]).expect("main branch");
+        fs::write(directory.join("notes.txt"), "main\n").expect("main contents");
+        run_git_checked(&path, &["add", "--", "notes.txt"]).expect("stage main");
+        run_git_checked(&path, &["commit", "-m", "main change"]).expect("main commit");
+        let main = run_git_checked(&path, &["rev-parse", "HEAD"]).expect("main hash");
+        let main_hash = String::from_utf8_lossy(&main.stdout).trim().to_string();
+
+        let merge_error =
+            merge_git_branch_in_path(&path, "feature").expect_err("conflicting merge should fail");
+        assert!(merge_error.starts_with("Merge was not applied."));
+        assert_repository_restored(&directory, &path, &main_hash);
+
+        let rebase_error = rebase_git_branch_in_path(&path, "feature")
+            .expect_err("conflicting rebase should fail");
+        assert!(rebase_error.starts_with("Rebase was not applied."));
+        assert_repository_restored(&directory, &path, &main_hash);
+
+        let cherry_pick_error = cherry_pick_git_commit_in_path(&path, &feature_hash)
+            .expect_err("conflicting cherry-pick should fail");
+        assert!(cherry_pick_error.starts_with("Cherry-pick was not applied."));
+        assert_repository_restored(&directory, &path, &main_hash);
+
+        fs::remove_dir_all(directory).expect("remove temporary repository");
+    }
+
+    fn assert_repository_restored(directory: &Path, path: &str, expected_head: &str) {
+        let head = run_git_checked(path, &["rev-parse", "HEAD"]).expect("restored head");
+        assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), expected_head);
+        assert_eq!(
+            fs::read_to_string(directory.join("notes.txt")).expect("restored contents"),
+            "main\n"
+        );
+        assert!(
+            read_git_workspace(path)
+                .expect("clean restored workspace")
+                .files
+                .is_empty()
+        );
     }
 }

@@ -146,6 +146,7 @@ export interface GitWorkspace {
   behind: number;
   files: GitFileChange[];
   branches: string[];
+  remoteBranches: string[];
   stashes: GitStash[];
 }
 
@@ -158,6 +159,7 @@ export interface GitStash {
 
 export interface GitFileChange {
   path: string;
+  previousPath: string | null;
   status: string;
   staged: boolean;
   unstaged: boolean;

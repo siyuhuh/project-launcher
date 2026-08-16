@@ -22,9 +22,14 @@ import {
 } from "lucide-react";
 import {
   applyStash,
+  cherryPickCommit,
   createBranch,
+  createBranchFromCommit,
   createCommit,
   createStash,
+  deleteBranch,
+  discardAllGitChanges,
+  discardGitFiles,
   dropStash,
   fetchRepository,
   generateCommitMessage,
@@ -33,9 +38,12 @@ import {
   getGitDiff,
   getGitHistory,
   getGitWorkspace,
+  mergeBranch,
   openLocalAiSetup,
   pullRepository,
   pushRepository,
+  rebaseBranch,
+  renameBranch,
   revertGitCommit,
   stageGitFiles,
   switchBranch,
@@ -53,7 +61,7 @@ import type {
 } from "../types";
 
 type Selection = { path: string; staged: boolean };
-type GitView = "changes" | "history" | "stashes";
+type GitView = "changes" | "history" | "branches" | "stashes";
 const COMMIT_PROVIDER_STORAGE_KEY = "runbox.commitProvider";
 const LOCAL_AI_PROMPT_STORAGE_KEY = "runbox.localAiPromptDismissed";
 const HISTORY_PAGE_SIZE = 30;
@@ -94,10 +102,16 @@ export function GitPanel({
   const [historyPath, setHistoryPath] = useState<string | null>(null);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyAllBranches, setHistoryAllBranches] = useState(false);
   const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
   const [commitDetail, setCommitDetail] = useState<GitCommitDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [revertConfirmHash, setRevertConfirmHash] = useState<string | null>(null);
+  const [cherryPickConfirmHash, setCherryPickConfirmHash] = useState<string | null>(null);
+  const [branchFromCommitHash, setBranchFromCommitHash] = useState<string | null>(null);
+  const [branchFromCommitDraft, setBranchFromCommitDraft] = useState("");
+  const [discardConfirmPath, setDiscardConfirmPath] = useState<string | null>(null);
+  const [discardAllConfirm, setDiscardAllConfirm] = useState(false);
   const busyRef = useRef(false);
   const historyRequestRef = useRef(0);
 
@@ -125,6 +139,8 @@ export function GitPanel({
         setSelectedCommitHash(null);
         setCommitDetail(null);
         setRevertConfirmHash(null);
+        setCherryPickConfirmHash(null);
+        setBranchFromCommitHash(null);
       }
       try {
         const page = await getGitHistory(
@@ -132,6 +148,7 @@ export function GitPanel({
           reset ? 0 : offset,
           HISTORY_PAGE_SIZE,
           filePath,
+          historyAllBranches,
         );
         if (requestId !== historyRequestRef.current) return;
         setHistory((current) => (reset ? page.commits : [...current, ...page.commits]));
@@ -145,7 +162,7 @@ export function GitPanel({
         if (requestId === historyRequestRef.current) setHistoryLoading(false);
       }
     },
-    [onNotify, project.id],
+    [historyAllBranches, onNotify, project.id],
   );
 
   useEffect(() => {
@@ -173,6 +190,9 @@ export function GitPanel({
     let cancelled = false;
     setCommitDetail(null);
     setRevertConfirmHash(null);
+    setCherryPickConfirmHash(null);
+    setBranchFromCommitHash(null);
+    setBranchFromCommitDraft("");
     setDetailLoading(true);
     getGitCommitDetail(project.id, selectedCommitHash)
       .then((detail) => {
@@ -244,6 +264,17 @@ export function GitPanel({
       setDropConfirmReference(null);
     }
   }, [dropConfirmReference, workspace]);
+
+  useEffect(() => {
+    if (
+      discardConfirmPath &&
+      workspace &&
+      !workspace.files.some((file) => file.path === discardConfirmPath)
+    ) {
+      setDiscardConfirmPath(null);
+    }
+    if (workspace?.files.length === 0) setDiscardAllConfirm(false);
+  }, [discardConfirmPath, workspace]);
 
   useEffect(() => {
     if (!selection) {
@@ -355,6 +386,106 @@ export function GitPanel({
     setBranchDraft("");
   }
 
+  async function handleCheckoutBranch(branch: string) {
+    await runOperation(
+      "checkout",
+      () => switchBranch(project.id, branch),
+      t("Checked out {{branch}}", { branch }),
+    );
+  }
+
+  async function handleRenameBranch(branch: string, nextBranch: string) {
+    await runOperation(
+      "branch-rename",
+      () => renameBranch(project.id, branch, nextBranch),
+      t("Renamed {{branch}} to {{next}}", { branch, next: nextBranch }),
+    );
+  }
+
+  async function handleDeleteBranch(branch: string, force: boolean) {
+    await runOperation(
+      "branch-delete",
+      () => deleteBranch(project.id, branch, force),
+      t("Deleted branch {{branch}}", { branch }),
+    );
+  }
+
+  async function handleMergeBranch(branch: string) {
+    await runOperation(
+      "branch-merge",
+      () => mergeBranch(project.id, branch),
+      t("Merged {{branch}} into {{current}}", {
+        branch,
+        current: workspace?.branch ?? t("current branch"),
+      }),
+    );
+  }
+
+  async function handleRebaseBranch(branch: string) {
+    await runOperation(
+      "branch-rebase",
+      () => rebaseBranch(project.id, branch),
+      t("Rebased {{current}} onto {{branch}}", {
+        branch,
+        current: workspace?.branch ?? t("current branch"),
+      }),
+    );
+  }
+
+  async function handleDiscardPath(path: string) {
+    if (busy) return;
+    if (discardConfirmPath !== path) {
+      setDiscardConfirmPath(path);
+      setDiscardAllConfirm(false);
+      return;
+    }
+    await runOperation(
+      "discard-file",
+      () => discardGitFiles(project.id, [path]),
+      t("Discarded changes in {{path}}", { path }),
+    );
+    setDiscardConfirmPath(null);
+  }
+
+  async function handleDiscardAll() {
+    if (busy || !workspace?.files.length) return;
+    if (!discardAllConfirm) {
+      setDiscardAllConfirm(true);
+      setDiscardConfirmPath(null);
+      return;
+    }
+    await runOperation(
+      "discard-all",
+      () => discardAllGitChanges(project.id),
+      t("Discarded all local changes"),
+    );
+    setDiscardAllConfirm(false);
+  }
+
+  async function handleCherryPick() {
+    if (!commitDetail || cherryPickConfirmHash !== commitDetail.hash || busy) return;
+    await runOperation(
+      "cherry-pick",
+      () => cherryPickCommit(project.id, commitDetail.hash),
+      t("Cherry-picked {{hash}}", { hash: commitDetail.shortHash }),
+    );
+    setCherryPickConfirmHash(null);
+  }
+
+  async function handleCreateBranchFromCommit() {
+    if (!commitDetail || branchFromCommitHash !== commitDetail.hash || !branchFromCommitDraft.trim()) {
+      return;
+    }
+    const branch = branchFromCommitDraft.trim();
+    await runOperation(
+      "branch-from-commit",
+      () => createBranchFromCommit(project.id, branch, commitDetail.hash),
+      t("Created {{branch}} from {{hash}}", { branch, hash: commitDetail.shortHash }),
+    );
+    setBranchFromCommitDraft("");
+    setBranchFromCommitHash(null);
+  }
+
   async function handleCreateStash() {
     if (!workspace?.files.length || busy) return;
     await runOperation(
@@ -444,23 +575,29 @@ export function GitPanel({
         <div className="git-toolbar">
           <label className="git-branch-select">
             <GitBranch size={14} />
+            <span>{t("Checkout")}</span>
             <select
               value={workspace?.branch ?? ""}
               onChange={(event) => {
                 const branch = event.target.value;
                 if (branch && branch !== workspace?.branch) {
-                  void runOperation(
-                    "branch",
-                    () => switchBranch(project.id, branch),
-                    t("Switched to {{branch}}", { branch }),
-                  );
+                  void handleCheckoutBranch(branch);
                 }
               }}
               disabled={!workspace || Boolean(busy)}
             >
-              {workspace?.branches.map((branch) => (
-                <option key={branch} value={branch}>{branch}</option>
-              ))}
+              <optgroup label={t("Local branches")}>
+                {workspace?.branches.map((branch) => (
+                  <option key={branch} value={branch}>{branch}</option>
+                ))}
+              </optgroup>
+              {workspace?.remoteBranches.length ? (
+                <optgroup label={t("Remote branches")}>
+                  {workspace.remoteBranches.map((branch) => (
+                    <option key={branch} value={branch}>{branch}</option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
           </label>
 
@@ -500,6 +637,15 @@ export function GitPanel({
               onClick={() => setView("history")}
             >
               <History size={12} /> {t("History")}
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === "branches"}
+              data-active={view === "branches"}
+              onClick={() => setView("branches")}
+            >
+              <GitBranch size={12} /> {t("Branches")}
+              {workspace?.branches.length ? <span>{workspace.branches.length}</span> : null}
             </button>
             <button
               role="tab"
@@ -569,6 +715,46 @@ export function GitPanel({
               </div>
             ) : workspace ? (
               <>
+                {workspace.files.length > 0 ? (
+                  <div className="git-discard-all">
+                    {discardAllConfirm ? (
+                      <>
+                        <div>
+                          <AlertTriangle size={12} />
+                          <span>
+                            {t("Discard every local change?")}
+                            <small>{t("Tracked files return to HEAD; new files move to Trash.")}</small>
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setDiscardAllConfirm(false)}
+                          disabled={Boolean(busy)}
+                        >
+                          {t("Cancel")}
+                        </button>
+                        <button
+                          data-danger="true"
+                          onClick={() => void handleDiscardAll()}
+                          disabled={Boolean(busy)}
+                        >
+                          {busy === "discard-all" ? (
+                            <LoaderCircle className="spin" size={10} />
+                          ) : (
+                            <Trash2 size={10} />
+                          )}
+                          {t("Discard all")}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span>{t("Uncommitted changes")}</span>
+                        <button onClick={() => void handleDiscardAll()} disabled={Boolean(busy)}>
+                          <Trash2 size={10} /> {t("Discard all...")}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
                 <GitFileSection
                   title={t("Staged changes")}
                   files={stagedFiles}
@@ -591,6 +777,8 @@ export function GitPanel({
                       t("Unstaged file"),
                     )
                   }
+                  confirmingDiscardPath={discardConfirmPath}
+                  onDiscard={(path) => void handleDiscardPath(path)}
                 />
                 <GitFileSection
                   title={t("Changes")}
@@ -614,6 +802,8 @@ export function GitPanel({
                       t("Staged file"),
                     )
                   }
+                  confirmingDiscardPath={discardConfirmPath}
+                  onDiscard={(path) => void handleDiscardPath(path)}
                 />
                 {workspace.files.length === 0 ? (
                   <div className="git-clean-state">
@@ -773,8 +963,10 @@ export function GitPanel({
                 filePath={historyPath}
                 loading={historyLoading}
                 hasMore={historyHasMore}
+                allBranches={historyAllBranches}
                 onSelect={setSelectedCommitHash}
                 onShowAll={() => setHistoryPath(null)}
+                onToggleAllBranches={() => setHistoryAllBranches((current) => !current)}
                 onLoadMore={() =>
                   void loadHistory(false, historyPath, history.length)
                 }
@@ -783,15 +975,48 @@ export function GitPanel({
                 detail={commitDetail}
                 loading={detailLoading}
                 workingTreeDirty={Boolean(workspace?.files.length)}
-                busy={busy === "revert"}
+                busy={busy}
                 confirming={revertConfirmHash === commitDetail?.hash}
-                onRequestRevert={() =>
-                  setRevertConfirmHash(commitDetail?.hash ?? null)
-                }
+                cherryPickConfirming={cherryPickConfirmHash === commitDetail?.hash}
+                branchFromCommitOpen={branchFromCommitHash === commitDetail?.hash}
+                branchFromCommitDraft={branchFromCommitDraft}
+                onRequestRevert={() => {
+                  setRevertConfirmHash(commitDetail?.hash ?? null);
+                  setCherryPickConfirmHash(null);
+                  setBranchFromCommitHash(null);
+                }}
                 onCancelRevert={() => setRevertConfirmHash(null)}
                 onConfirmRevert={() => void handleRevert()}
+                onRequestCherryPick={() => {
+                  setCherryPickConfirmHash(commitDetail?.hash ?? null);
+                  setRevertConfirmHash(null);
+                  setBranchFromCommitHash(null);
+                }}
+                onCancelCherryPick={() => setCherryPickConfirmHash(null)}
+                onConfirmCherryPick={() => void handleCherryPick()}
+                onRequestBranchFromCommit={() => {
+                  setBranchFromCommitHash(commitDetail?.hash ?? null);
+                  setRevertConfirmHash(null);
+                  setCherryPickConfirmHash(null);
+                }}
+                onCancelBranchFromCommit={() => {
+                  setBranchFromCommitHash(null);
+                  setBranchFromCommitDraft("");
+                }}
+                onBranchFromCommitDraftChange={setBranchFromCommitDraft}
+                onConfirmBranchFromCommit={() => void handleCreateBranchFromCommit()}
               />
             </>
+          ) : view === "branches" && workspace ? (
+            <GitBranchPane
+              workspace={workspace}
+              busy={busy}
+              onCheckout={(branch) => void handleCheckoutBranch(branch)}
+              onRename={(branch, nextBranch) => void handleRenameBranch(branch, nextBranch)}
+              onDelete={(branch, force) => void handleDeleteBranch(branch, force)}
+              onMerge={(branch) => void handleMergeBranch(branch)}
+              onRebase={(branch) => void handleRebaseBranch(branch)}
+            />
           ) : (
             <GitStashPane
               stashes={workspace?.stashes ?? []}
@@ -813,6 +1038,202 @@ export function GitPanel({
         </div>
       </section>
     </div>
+  );
+}
+
+type BranchConfirmation = {
+  action: "merge" | "rebase" | "delete";
+  branch: string;
+};
+
+function GitBranchPane({
+  workspace,
+  busy,
+  onCheckout,
+  onRename,
+  onDelete,
+  onMerge,
+  onRebase,
+}: {
+  workspace: GitWorkspace;
+  busy: string | null;
+  onCheckout: (branch: string) => void;
+  onRename: (branch: string, nextBranch: string) => void;
+  onDelete: (branch: string, force: boolean) => void;
+  onMerge: (branch: string) => void;
+  onRebase: (branch: string) => void;
+}) {
+  const { t } = useI18n();
+  const [renameDraft, setRenameDraft] = useState(workspace.branch);
+  const [confirmation, setConfirmation] = useState<BranchConfirmation | null>(null);
+  const [forceDelete, setForceDelete] = useState(false);
+  const dirty = workspace.files.length > 0;
+  const currentIsLocal = workspace.branches.includes(workspace.branch);
+
+  useEffect(() => {
+    setRenameDraft(workspace.branch);
+    setConfirmation(null);
+    setForceDelete(false);
+  }, [workspace.branch]);
+
+  function request(action: BranchConfirmation["action"], branch: string) {
+    setConfirmation({ action, branch });
+    setForceDelete(false);
+  }
+
+  function confirm() {
+    if (!confirmation) return;
+    if (confirmation.action === "merge") onMerge(confirmation.branch);
+    if (confirmation.action === "rebase") onRebase(confirmation.branch);
+    if (confirmation.action === "delete") onDelete(confirmation.branch, forceDelete);
+    setConfirmation(null);
+    setForceDelete(false);
+  }
+
+  return (
+    <main className="git-branch-pane">
+      <header className="git-branch-header">
+        <div>
+          <span><GitBranch size={12} /> {t("BRANCHES")}</span>
+          <h3>{t("Checkout and integrate branches")}</h3>
+          <p>{t("Switch context, merge finished work, or rebase the current branch onto a new base.")}</p>
+        </div>
+        <form
+          className="git-branch-rename"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (renameDraft.trim() && renameDraft.trim() !== workspace.branch) {
+              onRename(workspace.branch, renameDraft.trim());
+            }
+          }}
+        >
+          <label htmlFor="git-current-branch-name">{t("Current branch")}</label>
+          <div>
+            <input
+              id="git-current-branch-name"
+              value={renameDraft}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              disabled={!currentIsLocal || Boolean(busy)}
+            />
+            <button
+              type="submit"
+              disabled={
+                !currentIsLocal ||
+                !renameDraft.trim() ||
+                renameDraft.trim() === workspace.branch ||
+                Boolean(busy)
+              }
+            >
+              {t("Rename")}
+            </button>
+          </div>
+        </form>
+      </header>
+
+      {dirty ? (
+        <p className="git-branch-dirty-note">
+          <AlertTriangle size={11} />
+          {t("Merge and Rebase require a clean working tree. Checkout remains available when Git can carry the changes safely.")}
+        </p>
+      ) : null}
+
+      <div className="git-branch-sections">
+        <section className="git-branch-section">
+          <header>
+            <span>{t("LOCAL BRANCHES")}</span>
+            <strong>{workspace.branches.length}</strong>
+          </header>
+          <div>
+            {workspace.branches.map((branch) => {
+              const current = branch === workspace.branch;
+              const confirming = confirmation?.branch === branch;
+              return (
+                <article className="git-branch-row" data-current={current} key={branch}>
+                  <span className="git-branch-row-icon"><GitBranch size={13} /></span>
+                  <div className="git-branch-row-copy">
+                    <strong>{branch}</strong>
+                    <span>{current ? t("Checked out") : t("Local branch")}</span>
+                  </div>
+                  {current ? (
+                    <span className="git-current-branch-badge"><Check size={10} /> {t("Current")}</span>
+                  ) : confirming ? (
+                    <div className="git-branch-confirm">
+                      <span>
+                        {confirmation.action === "merge"
+                          ? t("Merge into {{branch}}?", { branch: workspace.branch })
+                          : confirmation.action === "rebase"
+                            ? t("Rebase {{branch}} onto this branch?", { branch: workspace.branch })
+                            : t("Delete {{branch}}?", { branch })}
+                      </span>
+                      {confirmation.action === "delete" ? (
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={forceDelete}
+                            onChange={(event) => setForceDelete(event.target.checked)}
+                          />
+                          {t("Delete even if unmerged")}
+                        </label>
+                      ) : null}
+                      <button onClick={() => setConfirmation(null)} disabled={Boolean(busy)}>{t("Cancel")}</button>
+                      <button
+                        data-danger={confirmation.action === "delete"}
+                        onClick={confirm}
+                        disabled={Boolean(busy)}
+                      >
+                        {busy ? <LoaderCircle className="spin" size={10} /> : null}
+                        {confirmation.action === "merge"
+                          ? t("Merge")
+                          : confirmation.action === "rebase"
+                            ? t("Rebase")
+                            : t("Delete")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="git-branch-row-actions">
+                      <button onClick={() => onCheckout(branch)} disabled={Boolean(busy)}>{t("Checkout")}</button>
+                      <button onClick={() => request("merge", branch)} disabled={dirty || Boolean(busy)}>{t("Merge")}</button>
+                      <button onClick={() => request("rebase", branch)} disabled={dirty || Boolean(busy)}>{t("Rebase")}</button>
+                      <button
+                        className="git-branch-delete"
+                        onClick={() => request("delete", branch)}
+                        disabled={Boolean(busy)}
+                        title={t("Delete branch")}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="git-branch-section">
+          <header>
+            <span>{t("REMOTE BRANCHES")}</span>
+            <strong>{workspace.remoteBranches.length}</strong>
+          </header>
+          <div>
+            {workspace.remoteBranches.length > 0 ? workspace.remoteBranches.map((branch) => (
+              <article className="git-branch-row" key={branch}>
+                <span className="git-branch-row-icon" data-remote="true"><GitBranch size={13} /></span>
+                <div className="git-branch-row-copy">
+                  <strong>{branch}</strong>
+                  <span>{t("Checkout creates a local tracking branch")}</span>
+                </div>
+                <div className="git-branch-row-actions">
+                  <button onClick={() => onCheckout(branch)} disabled={Boolean(busy)}>{t("Checkout")}</button>
+                </div>
+              </article>
+            )) : (
+              <div className="git-branch-empty">{t("Fetch to discover remote branches.")}</div>
+            )}
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }
 
@@ -958,8 +1379,10 @@ function GitHistoryTimeline({
   filePath,
   loading,
   hasMore,
+  allBranches,
   onSelect,
   onShowAll,
+  onToggleAllBranches,
   onLoadMore,
 }: {
   commits: GitCommit[];
@@ -967,8 +1390,10 @@ function GitHistoryTimeline({
   filePath: string | null;
   loading: boolean;
   hasMore: boolean;
+  allBranches: boolean;
   onSelect: (hash: string) => void;
   onShowAll: () => void;
+  onToggleAllBranches: () => void;
   onLoadMore: () => void;
 }) {
   const { t } = useI18n();
@@ -979,7 +1404,12 @@ function GitHistoryTimeline({
           <span><History size={11} /> {filePath ? t("FILE HISTORY") : t("RECENT COMMITS")}</span>
           {filePath ? <strong title={filePath}>{filePath}</strong> : null}
         </div>
-        {filePath ? <button onClick={onShowAll}>{t("All commits")}</button> : null}
+        <div className="git-history-scope-actions">
+          {filePath ? <button onClick={onShowAll}>{t("All commits")}</button> : null}
+          <button data-active={allBranches} onClick={onToggleAllBranches}>
+            {allBranches ? t("All branches") : t("Current branch")}
+          </button>
+        </div>
       </header>
 
       {loading && commits.length === 0 ? (
@@ -1039,18 +1469,38 @@ function GitCommitDetailView({
   workingTreeDirty,
   busy,
   confirming,
+  cherryPickConfirming,
+  branchFromCommitOpen,
+  branchFromCommitDraft,
   onRequestRevert,
   onCancelRevert,
   onConfirmRevert,
+  onRequestCherryPick,
+  onCancelCherryPick,
+  onConfirmCherryPick,
+  onRequestBranchFromCommit,
+  onCancelBranchFromCommit,
+  onBranchFromCommitDraftChange,
+  onConfirmBranchFromCommit,
 }: {
   detail: GitCommitDetail | null;
   loading: boolean;
   workingTreeDirty: boolean;
-  busy: boolean;
+  busy: string | null;
   confirming: boolean;
+  cherryPickConfirming: boolean;
+  branchFromCommitOpen: boolean;
+  branchFromCommitDraft: string;
   onRequestRevert: () => void;
   onCancelRevert: () => void;
   onConfirmRevert: () => void;
+  onRequestCherryPick: () => void;
+  onCancelCherryPick: () => void;
+  onConfirmCherryPick: () => void;
+  onRequestBranchFromCommit: () => void;
+  onCancelBranchFromCommit: () => void;
+  onBranchFromCommitDraftChange: (value: string) => void;
+  onConfirmBranchFromCommit: () => void;
 }) {
   const { t } = useI18n();
   if (loading) {
@@ -1073,7 +1523,9 @@ function GitCommitDetailView({
   }
 
   const mergeCommit = detail.parents.length > 1;
-  const revertDisabled = mergeCommit || workingTreeDirty || busy;
+  const operationBusy = Boolean(busy);
+  const revertDisabled = mergeCommit || workingTreeDirty || operationBusy;
+  const cherryPickDisabled = mergeCommit || workingTreeDirty || operationBusy;
   const revertTitle = mergeCommit
     ? t("Merge commits are view-only because reverting one requires choosing a mainline parent")
     : workingTreeDirty
@@ -1092,14 +1544,36 @@ function GitCommitDetailView({
             ) : null}
             <h3>{detail.subject}</h3>
           </div>
-          <button
-            className="git-revert-button"
-            onClick={onRequestRevert}
-            disabled={revertDisabled}
-            title={revertTitle}
-          >
-            <RotateCcw size={12} /> {t("Revert commit")}
-          </button>
+          <div className="git-commit-actions">
+            <button
+              onClick={onRequestBranchFromCommit}
+              disabled={operationBusy}
+              title={t("Create a branch starting at this commit")}
+            >
+              <GitBranch size={12} /> {t("New branch here")}
+            </button>
+            <button
+              onClick={onRequestCherryPick}
+              disabled={cherryPickDisabled}
+              title={
+                mergeCommit
+                  ? t("Merge commits cannot be cherry-picked here")
+                  : workingTreeDirty
+                    ? t("Commit or stash local changes before cherry-picking")
+                    : t("Apply this commit onto the current branch")
+              }
+            >
+              <GitCommitHorizontal size={12} /> {t("Cherry-pick")}
+            </button>
+            <button
+              className="git-revert-button"
+              onClick={onRequestRevert}
+              disabled={revertDisabled}
+              title={revertTitle}
+            >
+              <RotateCcw size={12} /> {t("Revert commit")}
+            </button>
+          </div>
         </div>
         {detail.body ? <p>{detail.body}</p> : null}
         <div className="git-commit-meta">
@@ -1115,12 +1589,55 @@ function GitCommitDetailView({
               <strong>{t("Reverse {{hash}} with a new commit?", { hash: detail.shortHash })}</strong>
               <span>{t("History stays intact. If Git finds a conflict, Runbox aborts the revert.")}</span>
             </div>
-            <button onClick={onCancelRevert} disabled={busy}>{t("Cancel")}</button>
-            <button onClick={onConfirmRevert} disabled={busy}>
-              {busy ? <LoaderCircle className="spin" size={11} /> : <RotateCcw size={11} />}
+            <button onClick={onCancelRevert} disabled={operationBusy}>{t("Cancel")}</button>
+            <button onClick={onConfirmRevert} disabled={operationBusy}>
+              {busy === "revert" ? <LoaderCircle className="spin" size={11} /> : <RotateCcw size={11} />}
               {t("Create revert")}
             </button>
           </div>
+        ) : null}
+        {cherryPickConfirming ? (
+          <div className="git-commit-confirm">
+            <GitCommitHorizontal size={14} />
+            <div>
+              <strong>{t("Cherry-pick {{hash}} onto the current branch?", { hash: detail.shortHash })}</strong>
+              <span>{t("If Git finds a conflict, Runbox aborts the cherry-pick and restores the branch.")}</span>
+            </div>
+            <button onClick={onCancelCherryPick} disabled={operationBusy}>{t("Cancel")}</button>
+            <button onClick={onConfirmCherryPick} disabled={operationBusy}>
+              {busy === "cherry-pick" ? <LoaderCircle className="spin" size={11} /> : <Check size={11} />}
+              {t("Cherry-pick")}
+            </button>
+          </div>
+        ) : null}
+        {branchFromCommitOpen ? (
+          <form
+            className="git-branch-from-commit"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onConfirmBranchFromCommit();
+            }}
+          >
+            <GitBranch size={14} />
+            <div>
+              <strong>{t("Create a branch from {{hash}}", { hash: detail.shortHash })}</strong>
+              <span>{t("The new branch is created at this commit and checked out immediately.")}</span>
+            </div>
+            <input
+              value={branchFromCommitDraft}
+              onChange={(event) => onBranchFromCommitDraftChange(event.target.value)}
+              placeholder={t("New branch name")}
+              autoFocus
+              disabled={operationBusy}
+            />
+            <button type="button" onClick={onCancelBranchFromCommit} disabled={operationBusy}>
+              {t("Cancel")}
+            </button>
+            <button type="submit" disabled={!branchFromCommitDraft.trim() || operationBusy}>
+              {busy === "branch-from-commit" ? <LoaderCircle className="spin" size={11} /> : <Plus size={11} />}
+              {t("Create and checkout")}
+            </button>
+          </form>
         ) : null}
       </header>
 
@@ -1161,6 +1678,8 @@ function GitFileSection({
   onAction,
   onSelect,
   onToggle,
+  confirmingDiscardPath,
+  onDiscard,
 }: {
   title: string;
   files: GitFileChange[];
@@ -1171,6 +1690,8 @@ function GitFileSection({
   onAction: () => void;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
+  confirmingDiscardPath: string | null;
+  onDiscard: (path: string) => void;
 }) {
   const { t } = useI18n();
   if (files.length === 0) return null;
@@ -1183,6 +1704,7 @@ function GitFileSection({
       <div className="git-file-list">
         {files.map((file) => {
           const active = selection?.path === file.path && selection.staged === staged;
+          const confirmingDiscard = confirmingDiscardPath === file.path;
           return (
             <div className="git-file-row" data-active={active} key={`${staged ? "s" : "u"}:${file.path}`}>
               <button className="git-file-main" onClick={() => onSelect(file.path)} title={file.path}>
@@ -1197,6 +1719,24 @@ function GitFileSection({
                 title={staged ? t("Unstage file") : t("Stage file")}
               >
                 {staged ? <Minus size={12} /> : <Plus size={12} />}
+              </button>
+              <button
+                className="git-discard-toggle"
+                data-confirming={confirmingDiscard}
+                onClick={() => onDiscard(file.path)}
+                disabled={actionDisabled}
+                aria-label={
+                  confirmingDiscard
+                    ? t("Confirm discard {{path}}", { path: file.path })
+                    : t("Discard changes in {{path}}", { path: file.path })
+                }
+                title={
+                  confirmingDiscard
+                    ? t("Click again to discard all changes in this file")
+                    : t("Discard file changes")
+                }
+              >
+                <Trash2 size={11} />
               </button>
             </div>
           );
