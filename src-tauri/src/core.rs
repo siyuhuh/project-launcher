@@ -161,6 +161,7 @@ pub struct GitWorkspace {
     pub branch: String,
     pub upstream: Option<String>,
     pub remote_url: Option<String>,
+    pub remote_web_url: Option<String>,
     pub ahead: u32,
     pub behind: u32,
     pub files: Vec<GitFileChange>,
@@ -2099,6 +2100,19 @@ pub fn git_commit_detail(project_id: &str, commit_hash: &str) -> Result<GitCommi
     read_git_commit_detail(&project.path, commit_hash)
 }
 
+pub fn open_git_remote(project_id: &str, commit_hash: Option<&str>) -> Result<(), String> {
+    let project = find_project(project_id)?;
+    let repository_url = repository_web_url(&project.path)
+        .ok_or_else(|| "No browser-friendly Git remote is configured".to_string())?;
+    let url = if let Some(commit_hash) = commit_hash {
+        let commit_hash = resolve_commit_hash(&project.path, commit_hash)?;
+        repository_commit_web_url(&repository_url, &commit_hash)
+    } else {
+        repository_url
+    };
+    open_path(&url)
+}
+
 pub fn revert_git_commit(project_id: &str, commit_hash: &str) -> Result<GitWorkspace, String> {
     let project = find_project(project_id)?;
     revert_git_commit_in_path(&project.path, commit_hash)?;
@@ -4026,12 +4040,14 @@ fn read_git_workspace(path: &str) -> Result<GitWorkspace, String> {
                 .to_string()
         })
         .filter(|value| !value.is_empty());
+    let remote_web_url = remote_url.as_deref().and_then(normalize_git_remote);
     let stashes = read_git_stashes(path);
 
     Ok(GitWorkspace {
         branch,
         upstream,
         remote_url,
+        remote_web_url,
         ahead,
         behind,
         files,
@@ -4376,6 +4392,18 @@ fn repository_web_url(path: &str) -> Option<String> {
         return None;
     }
     normalize_git_remote(String::from_utf8_lossy(&output.stdout).trim())
+}
+
+fn repository_commit_web_url(repository_url: &str, commit_hash: &str) -> String {
+    let repository_url = repository_url.trim_end_matches('/');
+    let lowercase_url = repository_url.to_ascii_lowercase();
+    if lowercase_url.contains("gitlab") {
+        format!("{repository_url}/-/commit/{commit_hash}")
+    } else if lowercase_url.contains("bitbucket") {
+        format!("{repository_url}/commits/{commit_hash}")
+    } else {
+        format!("{repository_url}/commit/{commit_hash}")
+    }
 }
 
 fn normalize_git_remote(remote: &str) -> Option<String> {
@@ -4766,10 +4794,10 @@ mod tests {
         discard_git_changes, merge_git_branch_in_path, migrate_project_tasks, normalize_git_remote,
         normalize_project_tasks, parse_git_file_record, parse_http_target, read_git_commit_detail,
         read_git_history, read_git_stashes, read_git_workspace, rebase_git_branch_in_path,
-        revert_git_commit_in_path, run_git_checked, sanitize_commit_message,
-        switch_git_branch_in_path, task_display_name, task_readiness_for_command, task_start_order,
-        validate_git_path, validate_stash_reference, validate_task_dependency_graph,
-        validate_trash_target,
+        repository_commit_web_url, revert_git_commit_in_path, run_git_checked,
+        sanitize_commit_message, switch_git_branch_in_path, task_display_name,
+        task_readiness_for_command, task_start_order, validate_git_path, validate_stash_reference,
+        validate_task_dependency_graph, validate_trash_target,
     };
     use std::{fs, path::Path};
     use uuid::Uuid;
@@ -4977,6 +5005,18 @@ mod tests {
             Some("https://example.com/team/runbox")
         );
         assert!(normalize_git_remote("../runbox.git").is_none());
+        assert_eq!(
+            repository_commit_web_url("https://github.com/team/runbox", "0123456789abcdef"),
+            "https://github.com/team/runbox/commit/0123456789abcdef"
+        );
+        assert_eq!(
+            repository_commit_web_url("https://gitlab.com/team/runbox", "0123456789abcdef"),
+            "https://gitlab.com/team/runbox/-/commit/0123456789abcdef"
+        );
+        assert_eq!(
+            repository_commit_web_url("https://bitbucket.org/team/runbox", "0123456789abcdef"),
+            "https://bitbucket.org/team/runbox/commits/0123456789abcdef"
+        );
     }
 
     #[test]

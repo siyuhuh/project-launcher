@@ -142,6 +142,7 @@ export interface GitWorkspace {
   branch: string;
   upstream: string | null;
   remoteUrl: string | null;
+  remoteWebUrl: string | null;
   ahead: number;
   behind: number;
   files: GitFileChange[];

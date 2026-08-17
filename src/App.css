@@ -2771,6 +2771,15 @@ button.git-status:active {
   color: var(--green);
 }
 
+.git-sync-actions .git-view-remote-button:not(:disabled) {
+  color: var(--text);
+}
+
+.git-sync-actions .git-view-remote-button:hover:not(:disabled) {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green), transparent 68%);
+}
+
 .git-sync-actions .git-push-button:not(:disabled) {
   color: #0b100c;
   border-color: transparent;
@@ -4102,6 +4111,10 @@ button.git-status:active {
   color: var(--green);
   border-color: color-mix(in srgb, var(--green), transparent 68%);
   background: color-mix(in srgb, var(--green), transparent 94%);
+}
+
+.git-commit-actions > .git-view-remote-commit:not(:disabled) {
+  color: var(--green);
 }
 
 .git-revert-button:hover:not(:disabled) {

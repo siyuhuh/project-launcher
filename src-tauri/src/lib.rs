@@ -177,6 +177,11 @@ async fn get_git_commit_detail(
 }
 
 #[tauri::command]
+async fn open_git_remote(project_id: String, commit_hash: Option<String>) -> Result<(), String> {
+    run_blocking(move || core::open_git_remote(&project_id, commit_hash.as_deref())).await
+}
+
+#[tauri::command]
 async fn revert_git_commit(
     project_id: String,
     commit_hash: String,
@@ -375,6 +380,7 @@ pub fn run() {
             get_git_diff,
             get_git_history,
             get_git_commit_detail,
+            open_git_remote,
             revert_git_commit,
             get_developer_tools,
             open_developer_tool,

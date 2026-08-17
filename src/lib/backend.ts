@@ -157,6 +157,10 @@ export function getGitCommitDetail(
   return invoke("get_git_commit_detail", { projectId, commitHash });
 }
 
+export function openGitRemote(projectId: string, commitHash: string | null = null): Promise<void> {
+  return invoke("open_git_remote", { projectId, commitHash });
+}
+
 export function revertGitCommit(
   projectId: string,
   commitHash: string,

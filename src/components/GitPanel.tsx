@@ -39,6 +39,7 @@ import {
   getGitHistory,
   getGitWorkspace,
   mergeBranch,
+  openGitRemote,
   openLocalAiSetup,
   pullRepository,
   pushRepository,
@@ -112,6 +113,7 @@ export function GitPanel({
   const [branchFromCommitDraft, setBranchFromCommitDraft] = useState("");
   const [discardConfirmPath, setDiscardConfirmPath] = useState<string | null>(null);
   const [discardAllConfirm, setDiscardAllConfirm] = useState(false);
+  const [openingRemoteTarget, setOpeningRemoteTarget] = useState<string | null>(null);
   const busyRef = useRef(false);
   const historyRequestRef = useRef(0);
 
@@ -486,6 +488,18 @@ export function GitPanel({
     setBranchFromCommitHash(null);
   }
 
+  async function handleOpenRemote(commitHash: string | null = null) {
+    if (openingRemoteTarget) return;
+    setOpeningRemoteTarget(commitHash ?? "repository");
+    try {
+      await openGitRemote(project.id, commitHash);
+    } catch (error) {
+      onNotify(errorMessage(error), "error");
+    } finally {
+      setOpeningRemoteTarget(null);
+    }
+  }
+
   async function handleCreateStash() {
     if (!workspace?.files.length || busy) return;
     await runOperation(
@@ -549,6 +563,10 @@ export function GitPanel({
       ((workspace.upstream && workspace.ahead > 0) ||
         (!workspace.upstream && workspace.remoteUrl)),
   );
+  const remoteProvider = remoteProviderName(workspace?.remoteWebUrl ?? null);
+  const remoteActionLabel = remoteProvider
+    ? t("View on {{provider}}", { provider: remoteProvider })
+    : t("View remote");
 
   return (
     <div
@@ -659,6 +677,25 @@ export function GitPanel({
           </div>
 
           <div className="git-sync-actions">
+            <button
+              className="git-view-remote-button"
+              onClick={() => void handleOpenRemote()}
+              disabled={!workspace?.remoteWebUrl || Boolean(openingRemoteTarget)}
+              title={
+                workspace?.remoteWebUrl
+                  ? t("Open {{provider}} repository in your browser", {
+                      provider: remoteProvider ?? t("remote"),
+                    })
+                  : t("No browser-friendly remote configured")
+              }
+            >
+              {openingRemoteTarget === "repository" ? (
+                <LoaderCircle className="spin" size={12} />
+              ) : (
+                <ExternalLink size={12} />
+              )}
+              {remoteActionLabel}
+            </button>
             <button
               onClick={() =>
                 void runOperation(
@@ -1005,6 +1042,12 @@ export function GitPanel({
                 }}
                 onBranchFromCommitDraftChange={setBranchFromCommitDraft}
                 onConfirmBranchFromCommit={() => void handleCreateBranchFromCommit()}
+                remoteActionLabel={remoteActionLabel}
+                canOpenRemote={Boolean(workspace?.remoteWebUrl)}
+                remoteOpening={openingRemoteTarget === commitDetail?.hash}
+                onOpenRemote={() => {
+                  if (commitDetail) void handleOpenRemote(commitDetail.hash);
+                }}
               />
             </>
           ) : view === "branches" && workspace ? (
@@ -1482,6 +1525,10 @@ function GitCommitDetailView({
   onCancelBranchFromCommit,
   onBranchFromCommitDraftChange,
   onConfirmBranchFromCommit,
+  remoteActionLabel,
+  canOpenRemote,
+  remoteOpening,
+  onOpenRemote,
 }: {
   detail: GitCommitDetail | null;
   loading: boolean;
@@ -1501,6 +1548,10 @@ function GitCommitDetailView({
   onCancelBranchFromCommit: () => void;
   onBranchFromCommitDraftChange: (value: string) => void;
   onConfirmBranchFromCommit: () => void;
+  remoteActionLabel: string;
+  canOpenRemote: boolean;
+  remoteOpening: boolean;
+  onOpenRemote: () => void;
 }) {
   const { t } = useI18n();
   if (loading) {
@@ -1545,6 +1596,23 @@ function GitCommitDetailView({
             <h3>{detail.subject}</h3>
           </div>
           <div className="git-commit-actions">
+            <button
+              className="git-view-remote-commit"
+              onClick={onOpenRemote}
+              disabled={!canOpenRemote || remoteOpening}
+              title={
+                canOpenRemote
+                  ? t("Open this commit in your browser")
+                  : t("No browser-friendly remote configured")
+              }
+            >
+              {remoteOpening ? (
+                <LoaderCircle className="spin" size={12} />
+              ) : (
+                <ExternalLink size={12} />
+              )}
+              {remoteActionLabel}
+            </button>
             <button
               onClick={onRequestBranchFromCommit}
               disabled={operationBusy}
@@ -1822,4 +1890,18 @@ function formatCommitDate(value: string, compact: boolean): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function remoteProviderName(remoteWebUrl: string | null): string | null {
+  if (!remoteWebUrl) return null;
+  try {
+    const hostname = new URL(remoteWebUrl).hostname;
+    const lowercaseHost = hostname.toLowerCase();
+    if (lowercaseHost.includes("github")) return "GitHub";
+    if (lowercaseHost.includes("gitlab")) return "GitLab";
+    if (lowercaseHost.includes("bitbucket")) return "Bitbucket";
+    return hostname;
+  } catch {
+    return null;
+  }
 }
